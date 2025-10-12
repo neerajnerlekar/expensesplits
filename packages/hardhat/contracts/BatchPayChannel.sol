@@ -72,9 +72,9 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
     struct UserPreference {
         address preferredToken;
         uint256 preferredChainId;
-        bool usePYUSD; // ⭐ NEW: User prefers PYUSD settlement
-        BridgePreference bridgePreference; // ⭐ NEW: Preferred bridge for cross-chain
-        string paypalEmail; // ⭐ NEW: Optional for PayPal bridge
+        bool usePYUSD; //User prefers PYUSD settlement
+        BridgePreference bridgePreference; //Preferred bridge for cross-chain
+        string paypalEmail; //Optional for PayPal bridge
     }
 
     enum BridgePreference {
@@ -100,7 +100,7 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
         address toToken;
         uint256 fromChainId;
         uint256 toChainId;
-        BridgePreference bridgeType; // ⭐ UPDATED: Track bridge type
+        BridgePreference bridgeType; // UPDATED: Track bridge type
     }
 
     // ============ Constants ============
@@ -121,7 +121,7 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
     // Track settlements
     mapping(bytes32 => Settlement[]) public channelSettlements;
     mapping(bytes32 => bool) public yellowIntentCompleted;
-    mapping(bytes32 => bool) public pyusdSettlementCompleted; // ⭐ NEW
+    mapping(bytes32 => bool) public pyusdSettlementCompleted;
 
     // ============ Events ============
 
@@ -139,8 +139,9 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
 
     event DisputeResolved(bytes32 indexed channelId, uint256 finalNonce);
 
-    event UserPreferenceSet( // ⭐ NEW
-    bytes32 indexed channelId, address indexed user, address preferredToken, uint256 preferredChainId, bool usePYUSD);
+    event UserPreferenceSet(
+        bytes32 indexed channelId, address indexed user, address preferredToken, uint256 preferredChainId, bool usePYUSD
+    );
 
     event YellowSettlementInitiated(
         bytes32 indexed channelId,
@@ -156,7 +157,7 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
 
     event YellowSettlementCompleted(bytes32 indexed yellowIntentId, bool success);
 
-    // ⭐ NEW: PYUSD-specific events
+    //PYUSD-specific events
     event PYUSDSettlementInitiated(
         bytes32 indexed channelId,
         bytes32 indexed settlementId,
@@ -195,37 +196,33 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
     }
 
     // ============ Constructor ============
-    
+
     constructor() Ownable(msg.sender) {
         // Contract is unpaused by default
     }
 
     // ============ Channel Lifecycle Functions ============
-    
+
     /**
      * @notice Open a new state channel (ERC-7824)
      * @param participants Array of participant addresses (2-50 participants)
      * @param chainId Primary chain ID for this channel
      * @return channelId Unique identifier for the channel
      */
-    function openChannel(
-        address[] calldata participants,
-        uint256 chainId
-    ) 
-        external 
-        payable 
-        whenNotPaused 
-        nonReentrant 
-        returns (bytes32 channelId) 
+    function openChannel(address[] calldata participants, uint256 chainId)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+        returns (bytes32 channelId)
     {
         require(
-            participants.length >= MIN_PARTICIPANTS && 
-            participants.length <= MAX_PARTICIPANTS,
+            participants.length >= MIN_PARTICIPANTS && participants.length <= MAX_PARTICIPANTS,
             "Invalid participant count"
         );
         require(msg.value > 0, "Deposit required");
         require(chainId > 0, "Invalid chain ID");
-        
+
         // Validate no duplicate participants
         for (uint256 i = 0; i < participants.length; i++) {
             require(participants[i] != address(0), "Invalid participant");
@@ -233,18 +230,10 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
                 require(participants[i] != participants[j], "Duplicate participant");
             }
         }
-        
+
         // Generate unique channel ID
-        channelId = keccak256(
-            abi.encodePacked(
-                participants,
-                chainId,
-                block.timestamp,
-                block.number,
-                msg.sender
-            )
-        );
-        
+        channelId = keccak256(abi.encodePacked(participants, chainId, block.timestamp, block.number, msg.sender));
+
         Channel storage channel = channels[channelId];
         channel.channelId = channelId;
         channel.totalDeposit = msg.value;
@@ -253,14 +242,53 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
         channel.timeout = block.timestamp + CHANNEL_TIMEOUT;
         channel.isOpen = true;
         channel.chainId = chainId;
-        
+
         // Add participants using EnumerableSet for O(1) lookups
         for (uint256 i = 0; i < participants.length; i++) {
             channel.participants.add(participants[i]);
             userChannels[participants[i]].push(channelId);
         }
-        
+
         emit ChannelOpened(channelId, participants, chainId, msg.value, block.timestamp);
+    }
+
+    /**
+     * @notice Set user's preferred settlement token and chain with PYUSD support
+     * @param channelId Channel identifier
+     * @param preferredToken Token address user wants to receive (can be PYUSD)
+     * @param preferredChainId Chain ID user wants to receive on
+     * @param usePYUSD Whether user prefers PYUSD settlement
+     * @param bridgePreference Preferred bridge type for cross-chain
+     * @param paypalEmail Optional PayPal email for PayPal bridge
+     */
+    function setUserPreference(
+        bytes32 channelId,
+        address preferredToken,
+        uint256 preferredChainId,
+        bool usePYUSD,
+        BridgePreference bridgePreference,
+        string calldata paypalEmail
+    ) external validChannelId(channelId) onlyParticipant(channelId) channelOpen(channelId) {
+        require(preferredChainId > 0, "Invalid chain ID");
+
+        // If usePYUSD is true, validate token is PYUSD
+        if (usePYUSD) {
+            require(
+                preferredToken == PYUSD_ETHEREUM || preferredToken == address(0),
+                "Token must be PYUSD if usePYUSD is true"
+            );
+        }
+
+        Channel storage channel = channels[channelId];
+        channel.preferences[msg.sender] = UserPreference({
+            preferredToken: usePYUSD ? PYUSD_ETHEREUM : preferredToken,
+            preferredChainId: preferredChainId,
+            usePYUSD: usePYUSD,
+            bridgePreference: bridgePreference,
+            paypalEmail: paypalEmail
+        });
+
+        emit UserPreferenceSet(channelId, msg.sender, preferredToken, preferredChainId, usePYUSD);
     }
 
     // ============ View Functions ============
