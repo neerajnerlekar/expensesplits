@@ -1,23 +1,140 @@
-# dependencies
-node_modules
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
 
-# yarn
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/sdks
-!.yarn/versions
+# Testing
+coverage/
 
-# eslint
+# Next.js
+.next/
+out/
+
+# Production
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
 .eslintcache
 
-# misc
-.DS_Store
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
 
-# IDE
-.vscode
-.idea
+# Optional REPL history
+.node_repl_history
 
-# cli
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.test
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+
+# Nuxt.js build / generate output
+.nuxt
 dist
+
+# Gatsby files
+.cache/
+public
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Hardhat files
+cache/
+artifacts/
+
+# Local Hardhat node
+.hardhat/
+
+# TypeScript
+*.tsbuildinfo
+
+# Scaffold-ETH specific
+packages/hardhat/artifacts/
+packages/hardhat/cache/
+packages/hardhat/typechain-types/
+packages/nextjs/out/
+packages/nextjs/.next/
+
+# Generated contract files
+packages/nextjs/contracts/deployedContracts.ts
+packages/nextjs/contracts/externalContracts.ts
+
+# Local environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Vercel
+.vercel
+
+# IPFS
+.ipfs/
