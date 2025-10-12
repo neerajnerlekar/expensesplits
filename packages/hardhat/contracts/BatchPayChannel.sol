@@ -195,9 +195,72 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
     }
 
     // ============ Constructor ============
-
+    
     constructor() Ownable(msg.sender) {
         // Contract is unpaused by default
+    }
+
+    // ============ Channel Lifecycle Functions ============
+    
+    /**
+     * @notice Open a new state channel (ERC-7824)
+     * @param participants Array of participant addresses (2-50 participants)
+     * @param chainId Primary chain ID for this channel
+     * @return channelId Unique identifier for the channel
+     */
+    function openChannel(
+        address[] calldata participants,
+        uint256 chainId
+    ) 
+        external 
+        payable 
+        whenNotPaused 
+        nonReentrant 
+        returns (bytes32 channelId) 
+    {
+        require(
+            participants.length >= MIN_PARTICIPANTS && 
+            participants.length <= MAX_PARTICIPANTS,
+            "Invalid participant count"
+        );
+        require(msg.value > 0, "Deposit required");
+        require(chainId > 0, "Invalid chain ID");
+        
+        // Validate no duplicate participants
+        for (uint256 i = 0; i < participants.length; i++) {
+            require(participants[i] != address(0), "Invalid participant");
+            for (uint256 j = i + 1; j < participants.length; j++) {
+                require(participants[i] != participants[j], "Duplicate participant");
+            }
+        }
+        
+        // Generate unique channel ID
+        channelId = keccak256(
+            abi.encodePacked(
+                participants,
+                chainId,
+                block.timestamp,
+                block.number,
+                msg.sender
+            )
+        );
+        
+        Channel storage channel = channels[channelId];
+        channel.channelId = channelId;
+        channel.totalDeposit = msg.value;
+        channel.deposits[msg.sender] = msg.value;
+        channel.nonce = 0;
+        channel.timeout = block.timestamp + CHANNEL_TIMEOUT;
+        channel.isOpen = true;
+        channel.chainId = chainId;
+        
+        // Add participants using EnumerableSet for O(1) lookups
+        for (uint256 i = 0; i < participants.length; i++) {
+            channel.participants.add(participants[i]);
+            userChannels[participants[i]].push(channelId);
+        }
+        
+        emit ChannelOpened(channelId, participants, chainId, msg.value, block.timestamp);
     }
 
     // ============ View Functions ============
