@@ -448,7 +448,7 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
     }
 
     // ============ PYUSD Settlement Functions ============
-    
+
     /**
      * @notice Direct PYUSD transfer (same chain, no bridge)
      * @dev Uses OpenZeppelin SafeERC20 for secure transfers
@@ -456,30 +456,22 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
      * @param recipient Recipient address
      * @param amount Amount in PYUSD (6 decimals)
      */
-    function settlePYUSDDirect(
-        bytes32 channelId,
-        address recipient,
-        uint256 amount
-    ) 
-        external 
+    function settlePYUSDDirect(bytes32 channelId, address recipient, uint256 amount)
+        external
         validChannelId(channelId)
-        onlyParticipant(channelId) 
-        nonReentrant 
+        onlyParticipant(channelId)
+        nonReentrant
     {
         require(!channels[channelId].isOpen, "Close channel first");
         require(recipient != address(0), "Invalid recipient");
         require(amount > 0, "Invalid amount");
-        
+
         // Use OpenZeppelin SafeERC20 for secure transfer
-        IERC20(PYUSD_ETHEREUM).safeTransferFrom(
-            msg.sender,
-            recipient,
-            amount
-        );
-        
+        IERC20(PYUSD_ETHEREUM).safeTransferFrom(msg.sender, recipient, amount);
+
         emit PYUSDDirectTransfer(channelId, msg.sender, recipient, amount);
     }
-    
+
     /**
      * @notice Initiate PYUSD settlement via PayPal bridge
      * @dev Transfers PYUSD to PayPal receiving address for cross-chain settlement
@@ -488,62 +480,37 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
      * @param amount Amount in PYUSD
      * @param paypalReceivingAddress PayPal-generated receiving address
      */
-    function settlePYUSDViaPayPal(
-        bytes32 channelId,
-        address recipient,
-        uint256 amount,
-        address paypalReceivingAddress
-    ) 
-        external 
+    function settlePYUSDViaPayPal(bytes32 channelId, address recipient, uint256 amount, address paypalReceivingAddress)
+        external
         validChannelId(channelId)
-        onlyParticipant(channelId) 
-        nonReentrant 
+        onlyParticipant(channelId)
+        nonReentrant
         returns (bytes32 settlementId)
     {
         require(!channels[channelId].isOpen, "Close channel first");
         require(recipient != address(0), "Invalid recipient");
         require(amount > 0, "Invalid amount");
         require(paypalReceivingAddress != address(0), "Invalid PayPal address");
-        
+
         // Generate settlement ID
-        settlementId = keccak256(
-            abi.encodePacked(
-                channelId,
-                msg.sender,
-                recipient,
-                amount,
-                block.timestamp
-            )
-        );
-        
+        settlementId = keccak256(abi.encodePacked(channelId, msg.sender, recipient, amount, block.timestamp));
+
         // Transfer PYUSD to PayPal receiving address
-        IERC20(PYUSD_ETHEREUM).safeTransferFrom(
-            msg.sender,
-            paypalReceivingAddress,
-            amount
-        );
-        
+        IERC20(PYUSD_ETHEREUM).safeTransferFrom(msg.sender, paypalReceivingAddress, amount);
+
         emit PYUSDSettlementInitiated(
-            channelId,
-            settlementId,
-            msg.sender,
-            recipient,
-            amount,
-            BridgePreference.PAYPAL_BRIDGE
+            channelId, settlementId, msg.sender, recipient, amount, BridgePreference.PAYPAL_BRIDGE
         );
-        
+
         return settlementId;
     }
-    
+
     /**
      * @notice Mark PYUSD settlement as completed
      * @param settlementId Settlement identifier
      * @param success Whether settlement succeeded
      */
-    function completePYUSDSettlement(
-        bytes32 settlementId,
-        bool success
-    ) external onlyOwner {
+    function completePYUSDSettlement(bytes32 settlementId, bool success) external onlyOwner {
         pyusdSettlementCompleted[settlementId] = success;
         emit PYUSDSettlementCompleted(settlementId, success);
     }
