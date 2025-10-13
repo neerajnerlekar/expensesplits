@@ -377,102 +377,175 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
 
         return true;
     }
-    
+
     /**
      * @notice Close channel with final state (requires all signatures)
      * @param channelId Channel identifier
      * @param finalState Final channel state
      * @param signatures Signatures from all participants
      */
-    function closeChannel(
-        bytes32 channelId,
-        ChannelStateData calldata finalState,
-        bytes[] calldata signatures
-    ) 
-        external 
+    function closeChannel(bytes32 channelId, ChannelStateData calldata finalState, bytes[] calldata signatures)
+        external
         validChannelId(channelId)
-        onlyParticipant(channelId) 
-        channelOpen(channelId) 
-        nonReentrant 
+        onlyParticipant(channelId)
+        channelOpen(channelId)
+        nonReentrant
     {
         Channel storage channel = channels[channelId];
-        
+
         // If in dispute, wait for dispute period
         if (channel.inDispute) {
-            require(
-                block.timestamp >= channel.disputeDeadline,
-                "Dispute period not over"
-            );
+            require(block.timestamp >= channel.disputeDeadline, "Dispute period not over");
         }
-        
-        require(
-            _verifySignatures(channelId, finalState, signatures),
-            "Invalid signatures"
-        );
-        
+
+        require(_verifySignatures(channelId, finalState, signatures), "Invalid signatures");
+
         require(finalState.nonce >= channel.nonce, "Cannot use old state");
-        
+
         channel.isOpen = false;
         channel.stateHash = finalState.stateHash;
         channel.nonce = finalState.nonce;
-        
+
         emit ChannelClosed(channelId, finalState.nonce, block.timestamp);
     }
-    
+
     /**
      * @notice Challenge current state with a higher nonce state
      * @param channelId Channel identifier
      * @param higherNonceState State with higher nonce
      * @param signatures Valid signatures for the new state
      */
-    function challengeState(
-        bytes32 channelId,
-        ChannelStateData calldata higherNonceState,
-        bytes[] calldata signatures
-    ) 
-        external 
+    function challengeState(bytes32 channelId, ChannelStateData calldata higherNonceState, bytes[] calldata signatures)
+        external
         validChannelId(channelId)
-        onlyParticipant(channelId) 
-        channelOpen(channelId) 
+        onlyParticipant(channelId)
+        channelOpen(channelId)
     {
         Channel storage channel = channels[channelId];
-        
-        require(
-            higherNonceState.nonce > channel.nonce,
-            "Must provide higher nonce"
-        );
-        require(
-            _verifySignatures(channelId, higherNonceState, signatures),
-            "Invalid signatures"
-        );
-        
+
+        require(higherNonceState.nonce > channel.nonce, "Must provide higher nonce");
+        require(_verifySignatures(channelId, higherNonceState, signatures), "Invalid signatures");
+
         channel.stateHash = higherNonceState.stateHash;
         channel.nonce = higherNonceState.nonce;
         channel.inDispute = true;
         channel.disputeDeadline = block.timestamp + DISPUTE_PERIOD;
-        
+
         emit DisputeInitiated(channelId, msg.sender, higherNonceState.nonce, channel.disputeDeadline);
     }
-    
+
     /**
      * @notice Force close channel after timeout
      * @param channelId Channel identifier
      */
-    function forceClose(bytes32 channelId) 
+    function forceClose(bytes32 channelId) external validChannelId(channelId) onlyParticipant(channelId) nonReentrant {
+        Channel storage channel = channels[channelId];
+        require(block.timestamp >= channel.timeout, "Timeout not reached");
+
+        channel.isOpen = false;
+
+        emit ChannelClosed(channelId, channel.nonce, block.timestamp);
+    }
+
+    // ============ PYUSD Settlement Functions ============
+    
+    /**
+     * @notice Direct PYUSD transfer (same chain, no bridge)
+     * @dev Uses OpenZeppelin SafeERC20 for secure transfers
+     * @param channelId Channel identifier
+     * @param recipient Recipient address
+     * @param amount Amount in PYUSD (6 decimals)
+     */
+    function settlePYUSDDirect(
+        bytes32 channelId,
+        address recipient,
+        uint256 amount
+    ) 
         external 
         validChannelId(channelId)
         onlyParticipant(channelId) 
         nonReentrant 
     {
-        Channel storage channel = channels[channelId];
-        require(
-            block.timestamp >= channel.timeout,
-            "Timeout not reached"
+        require(!channels[channelId].isOpen, "Close channel first");
+        require(recipient != address(0), "Invalid recipient");
+        require(amount > 0, "Invalid amount");
+        
+        // Use OpenZeppelin SafeERC20 for secure transfer
+        IERC20(PYUSD_ETHEREUM).safeTransferFrom(
+            msg.sender,
+            recipient,
+            amount
         );
         
-        channel.isOpen = false;
+        emit PYUSDDirectTransfer(channelId, msg.sender, recipient, amount);
+    }
+    
+    /**
+     * @notice Initiate PYUSD settlement via PayPal bridge
+     * @dev Transfers PYUSD to PayPal receiving address for cross-chain settlement
+     * @param channelId Channel identifier
+     * @param recipient Recipient address
+     * @param amount Amount in PYUSD
+     * @param paypalReceivingAddress PayPal-generated receiving address
+     */
+    function settlePYUSDViaPayPal(
+        bytes32 channelId,
+        address recipient,
+        uint256 amount,
+        address paypalReceivingAddress
+    ) 
+        external 
+        validChannelId(channelId)
+        onlyParticipant(channelId) 
+        nonReentrant 
+        returns (bytes32 settlementId)
+    {
+        require(!channels[channelId].isOpen, "Close channel first");
+        require(recipient != address(0), "Invalid recipient");
+        require(amount > 0, "Invalid amount");
+        require(paypalReceivingAddress != address(0), "Invalid PayPal address");
         
-        emit ChannelClosed(channelId, channel.nonce, block.timestamp);
+        // Generate settlement ID
+        settlementId = keccak256(
+            abi.encodePacked(
+                channelId,
+                msg.sender,
+                recipient,
+                amount,
+                block.timestamp
+            )
+        );
+        
+        // Transfer PYUSD to PayPal receiving address
+        IERC20(PYUSD_ETHEREUM).safeTransferFrom(
+            msg.sender,
+            paypalReceivingAddress,
+            amount
+        );
+        
+        emit PYUSDSettlementInitiated(
+            channelId,
+            settlementId,
+            msg.sender,
+            recipient,
+            amount,
+            BridgePreference.PAYPAL_BRIDGE
+        );
+        
+        return settlementId;
+    }
+    
+    /**
+     * @notice Mark PYUSD settlement as completed
+     * @param settlementId Settlement identifier
+     * @param success Whether settlement succeeded
+     */
+    function completePYUSDSettlement(
+        bytes32 settlementId,
+        bool success
+    ) external onlyOwner {
+        pyusdSettlementCompleted[settlementId] = success;
+        emit PYUSDSettlementCompleted(settlementId, success);
     }
 
     // ============ View Functions ============
