@@ -515,6 +515,81 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
         emit PYUSDSettlementCompleted(settlementId, success);
     }
 
+    // ============ Yellow Network Integration ============
+    
+    /**
+     * @notice Initiate cross-chain settlements via Yellow Network
+     * @dev Called after channel is closed, integrates with EIP-5792
+     * @param channelId Channel identifier
+     * @param settlements Array of cross-chain settlement intents
+     * @return yellowIntentIds Array of Yellow Network intent IDs
+     */
+    function initiateYellowSettlement(
+        bytes32 channelId,
+        Settlement[] calldata settlements
+    ) 
+        external 
+        validChannelId(channelId)
+        onlyParticipant(channelId) 
+        nonReentrant 
+        returns (bytes32[] memory yellowIntentIds) 
+    {
+        require(!channels[channelId].isOpen, "Close channel first");
+        require(settlements.length > 0, "No settlements provided");
+        
+        yellowIntentIds = new bytes32[](settlements.length);
+        
+        for (uint256 i = 0; i < settlements.length; i++) {
+            Settlement memory settlement = settlements[i];
+            
+            require(settlement.from != address(0), "Invalid from address");
+            require(settlement.to != address(0), "Invalid to address");
+            require(settlement.amount > 0, "Invalid amount");
+            
+            bytes32 intentId = keccak256(
+                abi.encodePacked(
+                    channelId,
+                    settlement.from,
+                    settlement.to,
+                    settlement.amount,
+                    settlement.fromToken,
+                    settlement.toToken,
+                    block.timestamp,
+                    i
+                )
+            );
+            
+            yellowIntentIds[i] = intentId;
+            channelSettlements[channelId].push(settlement);
+            
+            emit YellowSettlementInitiated(
+                channelId,
+                intentId,
+                settlement.from,
+                settlement.to,
+                settlement.amount,
+                settlement.fromToken,
+                settlement.toToken,
+                settlement.fromChainId,
+                settlement.toChainId
+            );
+        }
+    }
+    
+    /**
+     * @notice Mark Yellow Network settlement as completed
+     * @dev Called by authorized Yellow Network adapter
+     * @param intentId Yellow Network intent identifier
+     * @param success Whether the settlement succeeded
+     */
+    function completeYellowSettlement(
+        bytes32 intentId,
+        bool success
+    ) external onlyOwner {
+        yellowIntentCompleted[intentId] = success;
+        emit YellowSettlementCompleted(intentId, success);
+    }
+
     // ============ View Functions ============
 
     /**
