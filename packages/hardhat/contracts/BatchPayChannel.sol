@@ -290,7 +290,7 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
 
         emit UserPreferenceSet(channelId, msg.sender, preferredToken, preferredChainId, usePYUSD);
     }
-    
+
     /**
      * @notice Update channel state off-chain (ERC-7824 core function)
      * @dev Verifies all participant signatures using ECDSA
@@ -298,44 +298,34 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
      * @param newState New channel state data
      * @param signatures Array of signatures from all participants
      */
-    function updateState(
-        bytes32 channelId,
-        ChannelStateData calldata newState,
-        bytes[] calldata signatures
-    ) 
-        external 
+    function updateState(bytes32 channelId, ChannelStateData calldata newState, bytes[] calldata signatures)
+        external
         validChannelId(channelId)
-        onlyParticipant(channelId) 
-        channelOpen(channelId) 
-        notInDispute(channelId) 
+        onlyParticipant(channelId)
+        channelOpen(channelId)
+        notInDispute(channelId)
     {
         Channel storage channel = channels[channelId];
-        
+
         require(newState.channelId == channelId, "Channel ID mismatch");
         require(newState.nonce > channel.nonce, "Nonce must increase");
-        require(
-            newState.balances.length == channel.participants.length(),
-            "Balance array length mismatch"
-        );
-        require(
-            _verifySignatures(channelId, newState, signatures),
-            "Invalid signatures"
-        );
-        
+        require(newState.balances.length == channel.participants.length(), "Balance array length mismatch");
+        require(_verifySignatures(channelId, newState, signatures), "Invalid signatures");
+
         // Verify balances sum to zero (closed economy)
         int256 sum = 0;
         for (uint256 i = 0; i < newState.balances.length; i++) {
             sum += newState.balances[i];
         }
         require(sum == 0, "Balances must sum to zero");
-        
+
         // Update channel state
         channel.stateHash = newState.stateHash;
         channel.nonce = newState.nonce;
-        
+
         emit ChannelStateUpdated(channelId, newState.nonce, newState.stateHash, msg.sender);
     }
-    
+
     /**
      * @notice Verify signatures using OpenZeppelin ECDSA
      * @dev Implements EIP-191 signed message standard via MessageHashUtils
@@ -344,42 +334,32 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
      * @param signatures Array of signatures to verify
      * @return bool True if all signatures are valid
      */
-    function _verifySignatures(
-        bytes32 channelId,
-        ChannelStateData calldata state,
-        bytes[] calldata signatures
-    ) internal view returns (bool) {
+    function _verifySignatures(bytes32 channelId, ChannelStateData calldata state, bytes[] calldata signatures)
+        internal
+        view
+        returns (bool)
+    {
         Channel storage channel = channels[channelId];
         uint256 participantCount = channel.participants.length();
-        
-        require(
-            signatures.length == participantCount,
-            "Need all participant signatures"
-        );
-        
+
+        require(signatures.length == participantCount, "Need all participant signatures");
+
         // Create message hash (EIP-191 format)
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                channelId,
-                state.stateHash,
-                state.nonce,
-                state.balances
-            )
-        );
-        
+        bytes32 messageHash = keccak256(abi.encodePacked(channelId, state.stateHash, state.nonce, state.balances));
+
         // Convert to Ethereum Signed Message format using OpenZeppelin
         bytes32 ethSignedHash = messageHash.toEthSignedMessageHash();
-        
+
         // Track which participants have signed
         bool[] memory hasSigned = new bool[](participantCount);
-        
+
         for (uint256 i = 0; i < signatures.length; i++) {
             // Recover signer using OpenZeppelin ECDSA
             address recovered = ethSignedHash.recover(signatures[i]);
-            
+
             // Check if recovered address is a participant
             require(channel.participants.contains(recovered), "Invalid signer");
-            
+
             // Find participant index
             for (uint256 j = 0; j < participantCount; j++) {
                 address participant = channel.participants.at(j);
@@ -389,13 +369,110 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
                 }
             }
         }
-        
+
         // Verify all participants signed
         for (uint256 i = 0; i < participantCount; i++) {
             if (!hasSigned[i]) return false;
         }
-        
+
         return true;
+    }
+    
+    /**
+     * @notice Close channel with final state (requires all signatures)
+     * @param channelId Channel identifier
+     * @param finalState Final channel state
+     * @param signatures Signatures from all participants
+     */
+    function closeChannel(
+        bytes32 channelId,
+        ChannelStateData calldata finalState,
+        bytes[] calldata signatures
+    ) 
+        external 
+        validChannelId(channelId)
+        onlyParticipant(channelId) 
+        channelOpen(channelId) 
+        nonReentrant 
+    {
+        Channel storage channel = channels[channelId];
+        
+        // If in dispute, wait for dispute period
+        if (channel.inDispute) {
+            require(
+                block.timestamp >= channel.disputeDeadline,
+                "Dispute period not over"
+            );
+        }
+        
+        require(
+            _verifySignatures(channelId, finalState, signatures),
+            "Invalid signatures"
+        );
+        
+        require(finalState.nonce >= channel.nonce, "Cannot use old state");
+        
+        channel.isOpen = false;
+        channel.stateHash = finalState.stateHash;
+        channel.nonce = finalState.nonce;
+        
+        emit ChannelClosed(channelId, finalState.nonce, block.timestamp);
+    }
+    
+    /**
+     * @notice Challenge current state with a higher nonce state
+     * @param channelId Channel identifier
+     * @param higherNonceState State with higher nonce
+     * @param signatures Valid signatures for the new state
+     */
+    function challengeState(
+        bytes32 channelId,
+        ChannelStateData calldata higherNonceState,
+        bytes[] calldata signatures
+    ) 
+        external 
+        validChannelId(channelId)
+        onlyParticipant(channelId) 
+        channelOpen(channelId) 
+    {
+        Channel storage channel = channels[channelId];
+        
+        require(
+            higherNonceState.nonce > channel.nonce,
+            "Must provide higher nonce"
+        );
+        require(
+            _verifySignatures(channelId, higherNonceState, signatures),
+            "Invalid signatures"
+        );
+        
+        channel.stateHash = higherNonceState.stateHash;
+        channel.nonce = higherNonceState.nonce;
+        channel.inDispute = true;
+        channel.disputeDeadline = block.timestamp + DISPUTE_PERIOD;
+        
+        emit DisputeInitiated(channelId, msg.sender, higherNonceState.nonce, channel.disputeDeadline);
+    }
+    
+    /**
+     * @notice Force close channel after timeout
+     * @param channelId Channel identifier
+     */
+    function forceClose(bytes32 channelId) 
+        external 
+        validChannelId(channelId)
+        onlyParticipant(channelId) 
+        nonReentrant 
+    {
+        Channel storage channel = channels[channelId];
+        require(
+            block.timestamp >= channel.timeout,
+            "Timeout not reached"
+        );
+        
+        channel.isOpen = false;
+        
+        emit ChannelClosed(channelId, channel.nonce, block.timestamp);
     }
 
     // ============ View Functions ============
