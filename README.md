@@ -85,10 +85,10 @@ const bridgeService = new PYUSDBridgeService();
 
 const quote = await bridgeService.getBridgeQuote({
   amount: BigInt("1000000"), // 1 PYUSD (6 decimals)
-  fromChain: 'ethereum',
-  toChain: 'solana',
-  userEmail: 'user@example.com',
-  destinationAddress: '0x...'
+  fromChain: "ethereum",
+  toChain: "solana",
+  userEmail: "user@example.com",
+  destinationAddress: "0x...",
 });
 
 // Process:
@@ -101,12 +101,12 @@ const quote = await bridgeService.getBridgeQuote({
 ### PYUSD Bridge Service
 
 ```typescript
-import { pyusdBridgeService } from '~~/services/pyusdBridge';
+import { pyusdBridgeService } from "~~/services/pyusdBridge";
 
 // Get PayPal receiving address
 const depositAddress = await pyusdBridgeService.getPayPalReceivingAddress(
-  'user@example.com',
-  'ethereum'
+  "user@example.com",
+  "ethereum"
 );
 
 // Check bridge availability
@@ -143,21 +143,13 @@ bytes32 intentId = yellowAdapter.createSwapIntent(
 ```typescript
 // Frontend integration
 const { writeContractAsync } = useScaffoldWriteContract({
-  contractName: "YellowNetworkAdapter"
+  contractName: "YellowNetworkAdapter",
 });
 
 // Create swap intent
 await writeContractAsync({
   functionName: "createSwapIntent",
-  args: [
-    from,
-    to,
-    fromAmount,
-    fromToken,
-    toToken,
-    fromChainId,
-    toChainId
-  ]
+  args: [from, to, fromAmount, fromToken, toToken, fromChainId, toChainId],
 });
 ```
 
@@ -167,7 +159,7 @@ await writeContractAsync({
 
 ```typescript
 const { writeContractAsync } = useScaffoldWriteContract({
-  contractName: "BatchPayChannel"
+  contractName: "BatchPayChannel",
 });
 
 // Create channel with participants
@@ -175,9 +167,9 @@ await writeContractAsync({
   functionName: "openChannel",
   args: [
     [participant1, participant2, participant3], // Participants
-    chainId                                     // Chain ID
+    chainId, // Chain ID
   ],
-  value: parseEther("0.01") // Initial deposit
+  value: parseEther("0.01"), // Initial deposit
 });
 ```
 
@@ -189,12 +181,12 @@ await writeContractAsync({
   functionName: "setUserPreference",
   args: [
     channelId,
-    PYUSD_ETHEREUM_ADDRESS,  // Preferred token
-    targetChainId,          // Target chain
-    true,                   // usePYUSD
+    PYUSD_ETHEREUM_ADDRESS, // Preferred token
+    targetChainId, // Target chain
+    true, // usePYUSD
     BridgePreference.PAYPAL_BRIDGE, // Bridge preference
-    "user@example.com"      // PayPal email
-  ]
+    "user@example.com", // PayPal email
+  ],
 });
 ```
 
@@ -204,13 +196,13 @@ await writeContractAsync({
 // Direct PYUSD transfer (same chain)
 await writeContractAsync({
   functionName: "settlePYUSDDirect",
-  args: [channelId, recipient, amount]
+  args: [channelId, recipient, amount],
 });
 
 // PYUSD via PayPal bridge
 await writeContractAsync({
   functionName: "settlePYUSDViaPayPal",
-  args: [channelId, recipient, amount, paypalAddress]
+  args: [channelId, recipient, amount, paypalAddress],
 });
 ```
 
@@ -348,7 +340,7 @@ try {
   await writeContractAsync({
     functionName: "openChannel",
     args: [participants, chainId],
-    value: deposit
+    value: deposit,
   });
 } catch (error) {
   const parsedError = getParsedError(error);
@@ -383,7 +375,7 @@ if (chainId !== targetChainId) {
 const { data: channelInfo } = useScaffoldReadContract({
   contractName: "BatchPayChannel",
   functionName: "getChannel",
-  args: [channelId]
+  args: [channelId],
 });
 ```
 
