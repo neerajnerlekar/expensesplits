@@ -516,7 +516,7 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
     }
 
     // ============ Yellow Network Integration ============
-    
+
     /**
      * @notice Initiate cross-chain settlements via Yellow Network
      * @dev Called after channel is closed, integrates with EIP-5792
@@ -524,28 +524,25 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
      * @param settlements Array of cross-chain settlement intents
      * @return yellowIntentIds Array of Yellow Network intent IDs
      */
-    function initiateYellowSettlement(
-        bytes32 channelId,
-        Settlement[] calldata settlements
-    ) 
-        external 
+    function initiateYellowSettlement(bytes32 channelId, Settlement[] calldata settlements)
+        external
         validChannelId(channelId)
-        onlyParticipant(channelId) 
-        nonReentrant 
-        returns (bytes32[] memory yellowIntentIds) 
+        onlyParticipant(channelId)
+        nonReentrant
+        returns (bytes32[] memory yellowIntentIds)
     {
         require(!channels[channelId].isOpen, "Close channel first");
         require(settlements.length > 0, "No settlements provided");
-        
+
         yellowIntentIds = new bytes32[](settlements.length);
-        
+
         for (uint256 i = 0; i < settlements.length; i++) {
             Settlement memory settlement = settlements[i];
-            
+
             require(settlement.from != address(0), "Invalid from address");
             require(settlement.to != address(0), "Invalid to address");
             require(settlement.amount > 0, "Invalid amount");
-            
+
             bytes32 intentId = keccak256(
                 abi.encodePacked(
                     channelId,
@@ -558,10 +555,10 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
                     i
                 )
             );
-            
+
             yellowIntentIds[i] = intentId;
             channelSettlements[channelId].push(settlement);
-            
+
             emit YellowSettlementInitiated(
                 channelId,
                 intentId,
@@ -575,17 +572,14 @@ contract BatchPayChannel is ReentrancyGuard, Pausable, Ownable {
             );
         }
     }
-    
+
     /**
      * @notice Mark Yellow Network settlement as completed
      * @dev Called by authorized Yellow Network adapter
      * @param intentId Yellow Network intent identifier
      * @param success Whether the settlement succeeded
      */
-    function completeYellowSettlement(
-        bytes32 intentId,
-        bool success
-    ) external onlyOwner {
+    function completeYellowSettlement(bytes32 intentId, bool success) external onlyOwner {
         yellowIntentCompleted[intentId] = success;
         emit YellowSettlementCompleted(intentId, success);
     }
