@@ -160,7 +160,7 @@ export class StateChannelClient {
         channelId: this.currentChannel.channelId,
         stateHash: this.generateStateHash(newBalances),
         nonce: this.currentChannel.nonce + 1,
-        balances: newBalances.map(b => Number(b)),
+        balances: newBalances.map(b => b.toString()),
         timestamp: Date.now(),
       };
 
@@ -212,6 +212,50 @@ export class StateChannelClient {
    */
   getCurrentChannel(): ChannelState | null {
     return this.currentChannel;
+  }
+
+  /**
+   * Load existing channel by ID
+   * This method should be called when navigating to an existing channel
+   */
+  async loadChannel(channelId: string, participants: Address[]): Promise<void> {
+    try {
+      console.log(`🔄 Loading existing channel: ${channelId}`);
+
+      // Create a basic channel state for the existing channel
+      this.currentChannel = {
+        channelId: channelId as `0x${string}`,
+        participants: participants.map(address => ({
+          address: address as `0x${string}`,
+          balance: 0n, // Will be updated when we get actual state
+          weight: 1, // Default weight for all participants
+        })),
+        nonce: 0,
+        stateHash: "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`,
+        isOpen: true,
+        totalDeposit: 0n,
+        chainId: 31337, // Hardhat local network
+      };
+
+      // Create a basic session for the channel
+      this.currentSession = {
+        sessionId: `session_${channelId}`,
+        channelId: channelId,
+        participants: participants,
+        allocations: participants.map(address => ({
+          participant: address as `0x${string}`,
+          asset: "0x0000000000000000000000000000000000000000" as `0x${string}`, // ETH
+          amount: "0",
+        })),
+        isActive: true,
+        createdAt: Date.now(),
+      };
+
+      console.log("✅ Channel loaded successfully:", this.currentChannel);
+    } catch (error) {
+      console.error("Failed to load channel:", error);
+      throw error;
+    }
   }
 
   /**

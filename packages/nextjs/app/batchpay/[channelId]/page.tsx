@@ -336,7 +336,11 @@ const ChannelDetailPage = () => {
                     <div className={`badge ${clearNodeConnected ? "badge-success" : "badge-error"}`}>
                       {clearNodeConnected ? "ClearNode Connected" : "ClearNode Disconnected"}
                     </div>
-                    {clearNodeAuthenticated && <div className="badge badge-info">Authenticated</div>}
+                    {clearNodeAuthenticated ? (
+                      <div className="badge badge-success">Authenticated</div>
+                    ) : clearNodeConnected ? (
+                      <div className="badge badge-warning">Authenticating...</div>
+                    ) : null}
                   </div>
                 </div>
                 {expenses.length > 0 && (
@@ -352,6 +356,23 @@ const ChannelDetailPage = () => {
                     ⚠️ ClearNode not connected. Expenses will only be stored locally and won&apos;t sync with other
                     participants.
                   </span>
+                </div>
+              )}
+
+              {clearNodeConnected && !clearNodeAuthenticated && (
+                <div className="alert alert-info mb-4">
+                  <div className="flex items-center justify-between">
+                    <span>🔄 Authenticating with ClearNode... Please wait for authentication to complete.</span>
+                    <button
+                      className="btn btn-sm btn-outline"
+                      onClick={() => {
+                        console.log("🔄 Manual authentication retry...");
+                        window.location.reload();
+                      }}
+                    >
+                      Retry Auth
+                    </button>
+                  </div>
                 </div>
               )}
 

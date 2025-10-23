@@ -41,6 +41,32 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
     }
   }, [address, isConnected, isLoading, connect]);
 
+  // Load the channel when component mounts
+  useEffect(() => {
+    const loadChannel = async () => {
+      if (channelId && address) {
+        try {
+          console.log(`🔄 Loading channel ${channelId} for address ${address}`);
+
+          // For now, we'll use a simple approach with the current user and a placeholder participant
+          // In a real app, you'd fetch the actual participants from the blockchain or API
+          const participants = [
+            address as `0x${string}`,
+            "0x239897464D9B3C40b8EF695A0E1236e220B2a311" as `0x${string}`, // From the URL you provided
+          ];
+
+          await stateChannelClient.loadChannel(channelId, participants);
+          console.log("✅ Channel loaded successfully");
+        } catch (error) {
+          console.error("Failed to load channel:", error);
+          setError("Failed to load channel");
+        }
+      }
+    };
+
+    loadChannel();
+  }, [channelId, address]);
+
   // Load expenses from localStorage on mount
   useEffect(() => {
     const loadExpenses = () => {
@@ -86,8 +112,25 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
   // Add expense with ERC-7824 state channel integration
   const addExpense = useCallback(
     async (expenseData: Omit<Expense, "id" | "timestamp">) => {
-      if (!isAuthenticated) {
+      // Check both connection and authentication status
+      if (!isConnected) {
         const errorMessage = "Not connected to ClearNode. Please connect first.";
+        setError(errorMessage);
+        notification.error(errorMessage);
+        return;
+      }
+
+      if (!isAuthenticated) {
+        const errorMessage = "Not authenticated with ClearNode. Please wait for authentication to complete.";
+        setError(errorMessage);
+        notification.error(errorMessage);
+        return;
+      }
+
+      // Check if channel is loaded
+      const currentChannel = stateChannelClient.getCurrentChannel();
+      if (!currentChannel) {
+        const errorMessage = "No active channel found. Please ensure you're on the correct channel page.";
         setError(errorMessage);
         notification.error(errorMessage);
         return;

@@ -80,15 +80,23 @@ export const useStateChannel = (): UseStateChannelReturn => {
     const checkStatus = () => {
       const clearNodeStatus = clearNodeService.getStatus();
 
+      // Update states based on connection state
       setIsConnected(clearNodeStatus.isConnected);
       setIsAuthenticated(clearNodeStatus.isAuthenticated);
 
       const channel = stateChannelClient.getCurrentChannel();
       setCurrentChannel(channel);
+
+      // Log connection state for debugging
+      if (clearNodeStatus.connectionState) {
+        console.log(
+          `ClearNode state: ${clearNodeStatus.connectionState}, connected: ${clearNodeStatus.isConnected}, authenticated: ${clearNodeStatus.isAuthenticated}`,
+        );
+      }
     };
 
     checkStatus();
-    const interval = setInterval(checkStatus, 5000); // Check every 5 seconds
+    const interval = setInterval(checkStatus, 2000); // Check every 2 seconds for better responsiveness
 
     return () => clearInterval(interval);
   }, []);
@@ -120,10 +128,19 @@ export const useStateChannel = (): UseStateChannelReturn => {
       // Authenticate with ClearNode
       await clearNodeService.authenticate(messageSigner, address as `0x${string}`);
 
-      setIsConnected(true);
-      setIsAuthenticated(true);
+      // Wait a moment for state to propagate
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-      notification.success("Connected to ClearNode");
+      // Check final status
+      const finalStatus = clearNodeService.getStatus();
+      setIsConnected(finalStatus.isConnected);
+      setIsAuthenticated(finalStatus.isAuthenticated);
+
+      if (finalStatus.isAuthenticated) {
+        notification.success("Connected and authenticated with ClearNode");
+      } else {
+        throw new Error("Failed to authenticate with ClearNode");
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to connect";
       setError(errorMessage);
@@ -145,6 +162,18 @@ export const useStateChannel = (): UseStateChannelReturn => {
       return () => clearTimeout(timer);
     }
   }, [messageSigner, address, isConnected, isLoading, connect]);
+
+  // Auto-retry authentication if stuck in authenticating state
+  useEffect(() => {
+    if (isConnected && !isAuthenticated && messageSigner && address) {
+      const authTimeout = setTimeout(() => {
+        console.log("🔄 Retrying authentication...");
+        connect().catch(console.error);
+      }, 15000); // 15 seconds
+
+      return () => clearTimeout(authTimeout);
+    }
+  }, [isConnected, isAuthenticated, messageSigner, address, connect]);
 
   // Disconnect from ClearNode
   const disconnect = useCallback(async () => {
