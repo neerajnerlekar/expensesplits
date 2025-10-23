@@ -6,7 +6,7 @@
  * Note: ERC-7824 requires plain JSON signing (not EIP-191) for compatibility
  */
 import { Address, Hex, recoverMessageAddress } from "viem";
-import { useAccount, useSignMessage, useSignTypedData, useSwitchChain } from "wagmi";
+import { useAccount, useChainId, useSignMessage, useSignTypedData, useSwitchChain } from "wagmi";
 import type { EIP712Domain, EIP712Types, ViemMessageSigner } from "~~/types/nitrolite";
 
 /**
@@ -158,7 +158,7 @@ export const createStateChannelDomain = (chainId: number, contractAddress: Addre
  * Sign state update message
  */
 export const signStateUpdate = async (
-  messageSigner: MessageSigner,
+  messageSigner: ViemMessageSigner,
   channelId: string,
   stateHash: string,
   nonce: number,
@@ -179,7 +179,7 @@ export const signStateUpdate = async (
  * Sign payment message
  */
 export const signPayment = async (
-  messageSigner: MessageSigner,
+  messageSigner: ViemMessageSigner,
   amount: string,
   recipient: Address,
   token: string = "usdc",
@@ -199,7 +199,7 @@ export const signPayment = async (
  * Sign session creation message
  */
 export const signSessionCreation = async (
-  messageSigner: MessageSigner,
+  messageSigner: ViemMessageSigner,
   protocol: string,
   participants: Address[],
   allocations: Array<{ participant: Address; asset: string; amount: string }>,
@@ -229,7 +229,7 @@ export const useCurrentUserAddress = (): Address | undefined => {
  * This is the recommended approach for React components
  */
 export const useCurrentChainId = (): number | undefined => {
-  const { chainId } = useAccount();
+  const chainId = useChainId();
   return chainId;
 };
 

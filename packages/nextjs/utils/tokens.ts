@@ -129,7 +129,7 @@ export const getBridgeOptions = (token: Token): string[] => {
  * Format token amount with proper decimals
  */
 export const formatTokenAmount = (amount: bigint, decimals: number): string => {
-  const divisor = BigInt(10 ** decimals);
+  const divisor = 10n ** BigInt(decimals);
   const wholePart = amount / divisor;
   const fractionalPart = amount % divisor;
 
@@ -153,7 +153,7 @@ export const formatTokenAmount = (amount: bigint, decimals: number): string => {
 export const parseTokenAmount = (amount: string, decimals: number): bigint => {
   const [wholePart, fractionalPart = ""] = amount.split(".");
   const paddedFractional = fractionalPart.padEnd(decimals, "0").slice(0, decimals);
-  const wholeBigInt = BigInt(wholePart) * BigInt(10 ** decimals);
+  const wholeBigInt = BigInt(wholePart) * 10n ** BigInt(decimals);
   const fractionalBigInt = BigInt(paddedFractional);
 
   return wholeBigInt + fractionalBigInt;

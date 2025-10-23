@@ -53,6 +53,14 @@
     "husky": "~9.1.6",
     "lint-staged": "~13.2.2"
   },
+  "lint-staged": {
+    "packages/nextjs/**/*.{ts,tsx}": [
+      "yarn workspace @se-2/nextjs lint --fix"
+    ],
+    "packages/hardhat/**/*.{ts,sol}": [
+      "yarn workspace @se-2/hardhat lint"
+    ]
+  },
   "packageManager": "yarn@3.2.3",
   "engines": {
     "node": ">=20.18.3"

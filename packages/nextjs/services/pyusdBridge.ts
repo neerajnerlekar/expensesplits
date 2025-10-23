@@ -1,156 +1,155 @@
 /**
  * PYUSD Bridge Service
- * Handles PYUSD cross-chain transfers via PayPal/Venmo bridge
+ * Handles PYUSD same-chain transfers and balance checking
  *
- * Reference:
- * - https://developer.paypal.com/community/blog/pyusd-ethereum-solana-venmo/
- * - https://developer.paypal.com/dev-center/pyusd/
+ * Focus: Same-chain PYUSD operations only
+ * Cross-chain transfers should use Yellow Network
  */
+// Import Viem types
+import type { Address, Hex } from "viem";
+// Import our custom types
+import type { PYUSDBalance, PYUSDBridgeConfig, PYUSDBridgeServiceStatus, PYUSDTransfer } from "~~/types/nitrolite";
+// Import error class
+import { PYUSDBridgeError } from "~~/types/nitrolite";
+// Import utilities
+import { notification } from "~~/utils/scaffold-eth";
 import { PYUSD_CONSTANTS } from "~~/utils/tokens";
 
-export interface PayPalBridgeParams {
-  amount: bigint;
-  fromChain: "ethereum" | "solana";
-  toChain: "ethereum" | "solana";
-  userEmail: string;
-  destinationAddress: string;
-}
-
-export interface PayPalBridgeQuote {
-  depositAddress: string;
-  estimatedTime: string;
-  fee: string;
-  bridgeType: "paypal";
-  instructions: string[];
-}
-
 export class PYUSDBridgeService {
-  /**
-   * Get PayPal receiving address for user
-   * In production, this would call PayPal API
-   *
-   * API Reference: https://developer.paypal.com/docs/api/
-   */
-  async getPayPalReceivingAddress(email: string, chain: "ethereum" | "solana"): Promise<string> {
-    // TODO: Implement PayPal API integration
-    // For MVP, users would manually get this from PayPal app
+  private config: PYUSDBridgeConfig;
+  private status: PYUSDBridgeServiceStatus = {
+    isConnected: false,
+    isAuthenticated: false,
+    supportedChains: [1, 42161, 10, 8453, 137], // Ethereum, Arbitrum, Optimism, Base, Polygon
+    bridgeAvailable: false,
+    lastError: undefined,
+    lastUpdate: Date.now(),
+  };
 
-    // Placeholder implementation
-    console.log(`Getting PayPal receiving address for ${email} on ${chain}`);
-
-    // In production, call PayPal API:
-    // const response = await fetch('/api/paypal/receiving-address', {
-    //   method: 'POST',
-    //   body: JSON.stringify({ email, chain })
-    // });
-
-    return "0x..."; // PayPal-generated deposit address
-  }
-
-  /**
-   * Get bridge quote for PYUSD transfer via PayPal
-   *
-   * Process (from PayPal docs):
-   * 1. User sends PYUSD to their PayPal receiving address
-   * 2. PayPal credits user's PayPal account (unified balance)
-   * 3. User sends from PayPal to destination on target chain
-   */
-  async getBridgeQuote(params: PayPalBridgeParams): Promise<PayPalBridgeQuote> {
-    const depositAddress = await this.getPayPalReceivingAddress(params.userEmail, params.fromChain);
-
-    return {
-      depositAddress,
-      estimatedTime: "< 1 minute",
-      fee: "Network gas only (no bridge fee)",
-      bridgeType: "paypal",
-      instructions: [
-        `1. Send ${params.amount} PYUSD to your PayPal account: ${depositAddress}`,
-        `2. Wait for PayPal to credit your account (~30 seconds)`,
-        `3. In PayPal app, send PYUSD to destination address on ${params.toChain}`,
-        `4. Recipient receives PYUSD in < 1 minute`,
-      ],
+  constructor(config: Partial<PYUSDBridgeConfig> = {}) {
+    this.config = {
+      ethereumAddress: PYUSD_CONSTANTS.ETHEREUM_ADDRESS,
+      decimals: PYUSD_CONSTANTS.DECIMALS,
+      symbol: PYUSD_CONSTANTS.SYMBOL,
+      name: PYUSD_CONSTANTS.NAME,
+      ...config,
     };
   }
 
   /**
-   * Initiate PYUSD bridge via PayPal
-   *
-   * Note: This is a semi-automated process
-   * Full automation requires PayPal API integration
+   * Check if PYUSD is supported on the given chain
    */
-  async bridgeViaPayPal(params: PayPalBridgeParams): Promise<{
-    success: boolean;
-    depositAddress: string;
-    message: string;
-  }> {
-    const quote = await this.getBridgeQuote(params);
-
-    return {
-      success: true,
-      depositAddress: quote.depositAddress,
-      message: "Send PYUSD to your PayPal account to proceed with cross-chain transfer",
-    };
+  isPYUSDSupported(chainId: number): boolean {
+    return this.status.supportedChains.includes(chainId);
   }
 
   /**
-   * Check if PayPal bridge is available for given chains
+   * Validate same-chain transfer
    */
-  isPayPalBridgeAvailable(fromChain: number, toChain: number): boolean {
-    // PayPal bridge: Ethereum <-> Solana
-    const supportedChains = [1, 501]; // Ethereum mainnet, Solana mainnet
-    return supportedChains.includes(fromChain) && supportedChains.includes(toChain);
+  validateSameChainTransfer(fromChainId: number, toChainId: number): void {
+    if (fromChainId !== toChainId) {
+      throw new PYUSDBridgeError(
+        `Cross-chain PYUSD transfers not supported. Use Yellow Network for cross-chain transfers.`,
+        undefined,
+        fromChainId,
+      );
+    }
+
+    if (!this.isPYUSDSupported(fromChainId)) {
+      throw new PYUSDBridgeError(`PYUSD not supported on chain ${fromChainId}`, undefined, fromChainId);
+    }
   }
 
   /**
    * Get PYUSD balance for user on specific chain
+   * TODO: Integrate with actual PYUSD contract calls
    */
-  async getPYUSDBalance(address: string, chainId: number): Promise<bigint> {
-    // TODO: Implement actual balance checking
-    // This would call the PYUSD contract on the specific chain
+  async getPYUSDBalance(address: Address, chainId: number): Promise<PYUSDBalance> {
+    try {
+      this.validateSameChainTransfer(chainId, chainId);
 
-    if (chainId === 1) {
-      // Ethereum mainnet
-      // Call PYUSD_ETHEREUM contract balanceOf(address)
-      return 0n; // Placeholder
+      // TODO: Replace with actual contract call
+      // const balance = await this.callPYUSDContract(chainId, 'balanceOf', [address]);
+
+      // Mock implementation for development
+      const balance = 0n; // Placeholder
+
+      this.status.lastUpdate = Date.now();
+      return {
+        address,
+        balance,
+        chainId,
+        lastUpdated: Date.now(),
+      };
+    } catch (error) {
+      this.status.lastError = `Failed to get PYUSD balance: ${error}`;
+      this.status.lastUpdate = Date.now();
+      throw new PYUSDBridgeError(`Failed to get PYUSD balance: ${error}`, undefined, chainId);
     }
+  }
 
-    if (chainId === 501) {
-      // Solana mainnet
-      // Call PYUSD Solana program
-      return 0n; // Placeholder
+  /**
+   * Transfer PYUSD on same chain
+   * TODO: Integrate with actual PYUSD contract calls
+   */
+  async transferPYUSD(from: Address, to: Address, amount: bigint, chainId: number): Promise<PYUSDTransfer> {
+    try {
+      this.validateSameChainTransfer(chainId, chainId);
+
+      // TODO: Replace with actual contract call
+      // const txHash = await this.callPYUSDContract(chainId, 'transfer', [to, amount]);
+
+      // Mock implementation for development
+      const txHash = `0x${Math.random().toString(16).substring(2, 66)}` as Hex;
+
+      const transfer: PYUSDTransfer = {
+        from,
+        to,
+        amount,
+        chainId,
+        transactionHash: txHash,
+        status: "pending",
+      };
+
+      this.status.lastUpdate = Date.now();
+      notification.success(`PYUSD transfer initiated: ${this.formatPYUSDAmount(amount, chainId)}`);
+
+      return transfer;
+    } catch (error) {
+      this.status.lastError = `Failed to transfer PYUSD: ${error}`;
+      this.status.lastUpdate = Date.now();
+      throw new PYUSDBridgeError(`Failed to transfer PYUSD: ${error}`, undefined, chainId);
     }
-
-    return 0n;
   }
 
   /**
    * Get PYUSD token info for display
    */
-  getPYUSDInfo(chainId: number): {
-    address: string;
-    symbol: string;
-    decimals: number;
-    name: string;
-  } {
-    if (chainId === 1) {
-      return {
-        address: PYUSD_CONSTANTS.ETHEREUM_ADDRESS,
-        symbol: PYUSD_CONSTANTS.SYMBOL,
-        decimals: PYUSD_CONSTANTS.DECIMALS,
-        name: PYUSD_CONSTANTS.NAME,
-      };
+  getPYUSDInfo(chainId: number): PYUSDBridgeConfig {
+    if (!this.isPYUSDSupported(chainId)) {
+      throw new PYUSDBridgeError(`PYUSD not supported on chain ${chainId}`, undefined, chainId);
     }
 
-    if (chainId === 501) {
-      return {
-        address: PYUSD_CONSTANTS.SOLANA_ADDRESS,
-        symbol: PYUSD_CONSTANTS.SYMBOL,
-        decimals: PYUSD_CONSTANTS.DECIMALS,
-        name: PYUSD_CONSTANTS.NAME,
-      };
-    }
+    return {
+      ethereumAddress: this.config.ethereumAddress,
+      decimals: this.config.decimals,
+      symbol: this.config.symbol,
+      name: this.config.name,
+    };
+  }
 
-    throw new Error(`PYUSD not supported on chain ${chainId}`);
+  /**
+   * Get service status
+   */
+  getStatus(): PYUSDBridgeServiceStatus {
+    return { ...this.status };
+  }
+
+  /**
+   * Check if bridge is available (always false for same-chain only)
+   */
+  isBridgeAvailable(): boolean {
+    return false; // No cross-chain bridge available
   }
 
   /**
@@ -158,7 +157,7 @@ export class PYUSDBridgeService {
    */
   formatPYUSDAmount(amount: bigint, chainId: number): string {
     const info = this.getPYUSDInfo(chainId);
-    const divisor = BigInt(10 ** info.decimals);
+    const divisor = 10n ** BigInt(info.decimals);
     const wholePart = amount / divisor;
     const fractionalPart = amount % divisor;
 
@@ -183,7 +182,7 @@ export class PYUSDBridgeService {
     const info = this.getPYUSDInfo(chainId);
     const [wholePart, fractionalPart = ""] = amount.split(".");
     const paddedFractional = fractionalPart.padEnd(info.decimals, "0").slice(0, info.decimals);
-    const wholeBigInt = BigInt(wholePart) * BigInt(10 ** info.decimals);
+    const wholeBigInt = BigInt(wholePart) * 10n ** BigInt(info.decimals);
     const fractionalBigInt = BigInt(paddedFractional);
 
     return wholeBigInt + fractionalBigInt;
@@ -192,3 +191,6 @@ export class PYUSDBridgeService {
 
 // Export singleton instance
 export const pyusdBridgeService = new PYUSDBridgeService();
+
+// Re-export PYUSDBalance type for external use
+export type { PYUSDBalance } from "~~/types/nitrolite";

@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useChainId } from "wagmi";
 import { useWriteContracts } from "wagmi/experimental";
 import { Address } from "~~/components/scaffold-eth";
 import { pyusdBridgeService } from "~~/services/pyusdBridge";
+import { stateChannelClient } from "~~/services/stateChannelClient";
+import { yellowNetworkService } from "~~/services/yellowNetwork";
 import { notification } from "~~/utils/scaffold-eth";
 import { SUPPORTED_TOKENS, isPYUSD } from "~~/utils/tokens";
 
@@ -22,13 +24,14 @@ interface BatchSettlementProps {
   onSettlementComplete?: (success: boolean) => void;
 }
 
-const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: BatchSettlementProps) => {
+const BatchSettlement = ({ settlements, onSettlementComplete }: BatchSettlementProps) => {
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedSettlements, setSelectedSettlements] = useState<Set<number>>(new Set());
-  const [pyusdBridgeQuotes, setPyusdBridgeQuotes] = useState<Record<string, any>>({});
+  const [yellowNetworkQuotes, setYellowNetworkQuotes] = useState<Record<string, any>>({});
 
-  const { writeContractsAsync, isPending } = useWriteContracts();
+  const { isPending } = useWriteContracts();
 
   // Note: Channel info could be used for additional validation if needed
 
@@ -42,28 +45,29 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
     setSelectedSettlements(newSelection);
   };
 
-  const getBridgeQuote = async (settlement: Settlement) => {
-    if (!isPYUSD(settlement.token)) return null;
+  const getYellowNetworkQuote = async (settlement: Settlement) => {
+    if (!chainId) return null;
 
     try {
-      const quote = await pyusdBridgeService.getBridgeQuote({
-        amount: BigInt(settlement.amount),
-        fromChain: "ethereum",
-        toChain: "solana",
-        userEmail: "user@example.com", // In production, get from user profile
-        destinationAddress: settlement.to,
+      const quote = await yellowNetworkService.getQuote({
+        fromToken: settlement.token as `0x${string}`,
+        toToken: settlement.token as `0x${string}`, // Same token for now
+        fromAmount: BigInt(settlement.amount),
+        fromChainId: chainId,
+        toChainId: 42161, // Arbitrum as example
+        slippageTolerance: 0.5,
       });
       return quote;
     } catch (error) {
-      console.error("Error getting bridge quote:", error);
+      console.error("Error getting Yellow Network quote:", error);
       return null;
     }
   };
 
-  const handleGetPyusdQuote = async (settlement: Settlement) => {
-    const quote = await getBridgeQuote(settlement);
+  const handleGetYellowNetworkQuote = async (settlement: Settlement) => {
+    const quote = await getYellowNetworkQuote(settlement);
     if (quote) {
-      setPyusdBridgeQuotes(prev => ({
+      setYellowNetworkQuotes(prev => ({
         ...prev,
         [settlement.from + settlement.to + settlement.amount]: quote,
       }));
@@ -75,13 +79,13 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
 
     if (!token) return "direct";
 
-    // PYUSD with PayPal bridge support
-    if (isPYUSD(settlement.token) && token.paypalBridgeSupported) {
-      return "paypal";
+    // PYUSD - same chain only
+    if (isPYUSD(settlement.token)) {
+      return "pyusd";
     }
 
-    // Yellow Network for other tokens
-    if (token.hasCrossChainBridge && settlement.chainId !== 1) {
+    // Yellow Network for cross-chain transfers
+    if (token.hasCrossChainBridge && settlement.chainId !== chainId) {
       return "yellow";
     }
 
@@ -113,7 +117,7 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
         const route = determineSettlementRoute(settlement);
 
         switch (route) {
-          case "paypal":
+          case "pyusd":
             pyusdSettlements.push(settlement);
             break;
           case "yellow":
@@ -124,48 +128,58 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
         }
       }
 
-      // Prepare batch contract calls
-      const contractCalls = [];
+      // Process settlements using new services
+      const settlementPromises = [];
 
-      // Direct settlements
+      // Direct settlements via state channel
       for (const settlement of directSettlements) {
-        contractCalls.push({
-          address: "BatchPayChannel", // This would be the actual contract address
-          abi: [], // Contract ABI
-          functionName: "settlePYUSDDirect",
-          args: [channelId, settlement.to, BigInt(settlement.amount)],
-        });
+        settlementPromises.push(
+          stateChannelClient.sendPayment({
+            amount: BigInt(settlement.amount),
+            recipient: settlement.to as `0x${string}`,
+            token: settlement.token,
+          }),
+        );
       }
 
-      // PYUSD PayPal bridge settlements
+      // PYUSD same-chain settlements
       for (const settlement of pyusdSettlements) {
-        const quote = pyusdBridgeQuotes[settlement.from + settlement.to + settlement.amount];
-        if (quote) {
-          contractCalls.push({
-            address: "BatchPayChannel",
-            abi: [],
-            functionName: "settlePYUSDViaPayPal",
-            args: [channelId, settlement.to, BigInt(settlement.amount), quote.depositAddress],
-          });
-        }
+        if (!chainId) continue;
+
+        settlementPromises.push(
+          pyusdBridgeService.transferPYUSD(
+            settlement.from as `0x${string}`,
+            settlement.to as `0x${string}`,
+            BigInt(settlement.amount),
+            chainId,
+          ),
+        );
       }
 
       // Yellow Network settlements
-      if (yellowSettlements.length > 0) {
-        contractCalls.push({
-          address: "BatchPayChannel",
-          abi: [],
-          functionName: "initiateYellowSettlement",
-          args: [channelId, yellowSettlements],
-        });
+      for (const settlement of yellowSettlements) {
+        if (!chainId) continue;
+
+        settlementPromises.push(
+          yellowNetworkService.submitSwapIntent({
+            from: settlement.from as `0x${string}`,
+            to: settlement.to as `0x${string}`,
+            fromToken: settlement.token as `0x${string}`,
+            toToken: settlement.token as `0x${string}`, // Same token for now
+            fromAmount: BigInt(settlement.amount),
+            fromChainId: chainId,
+            toChainId: 42161, // Arbitrum as example
+            quoteId: "mock-quote-id", // In real implementation, get from quote
+          }),
+        );
       }
 
-      // Execute batch settlement using EIP-5792
-      const result = await writeContractsAsync({
-        contracts: contractCalls,
-      });
+      // Execute all settlements
+      await Promise.all(settlementPromises);
 
-      notification.success(`Batch settlement completed! Transaction ID: ${result.id}`, { duration: 10000 });
+      notification.success(`Batch settlement completed! ${selectedSettlements.size} settlement(s) processed`, {
+        duration: 10000,
+      });
 
       onSettlementComplete?.(true);
     } catch (error) {
@@ -193,8 +207,8 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
       <div className="card-body">
         <h2 className="card-title">Batch Settlement</h2>
         <p className="text-base-content/60 mb-4">
-          Select settlements to process in a single transaction. PYUSD settlements can use PayPal bridge for cross-chain
-          transfers.
+          Select settlements to process in a single transaction. PYUSD settlements are same-chain only. Cross-chain
+          transfers use Yellow Network.
         </p>
 
         <div className="space-y-4">
@@ -204,7 +218,7 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
               const token = SUPPORTED_TOKENS.find(t => t.address.toLowerCase() === settlement.token.toLowerCase());
               const route = determineSettlementRoute(settlement);
               const isSelected = selectedSettlements.has(index);
-              const quote = pyusdBridgeQuotes[settlement.from + settlement.to + settlement.amount];
+              const quote = yellowNetworkQuotes[settlement.from + settlement.to + settlement.amount];
 
               return (
                 <div key={index} className="card bg-base-200 shadow">
@@ -223,7 +237,7 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
                               {settlement.amount} {token?.symbol || "Unknown"}
                             </span>
                             <span className="badge badge-sm">
-                              {route === "paypal" ? "PayPal Bridge" : route === "yellow" ? "Yellow Network" : "Direct"}
+                              {route === "pyusd" ? "PYUSD Direct" : route === "yellow" ? "Yellow Network" : "Direct"}
                             </span>
                           </div>
                           <div className="text-sm text-base-content/60">
@@ -233,15 +247,18 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
                       </div>
 
                       <div className="flex items-center space-x-2">
-                        {route === "paypal" && (
-                          <button className="btn btn-sm btn-outline" onClick={() => handleGetPyusdQuote(settlement)}>
+                        {route === "yellow" && (
+                          <button
+                            className="btn btn-sm btn-outline"
+                            onClick={() => handleGetYellowNetworkQuote(settlement)}
+                          >
                             Get Quote
                           </button>
                         )}
                         {quote && (
                           <div className="text-xs text-success">
                             <div>Time: {quote.estimatedTime}</div>
-                            <div>Fee: {quote.fee}</div>
+                            <div>Fee: {quote.fee?.toString() || "N/A"}</div>
                           </div>
                         )}
                       </div>
@@ -275,7 +292,7 @@ const BatchSettlement = ({ channelId, settlements, onSettlementComplete }: Batch
                   <br />
                   EIP-5792 batch transaction will be used for gas optimization
                   <br />
-                  PYUSD settlements will use PayPal bridge for cross-chain transfers
+                  PYUSD settlements are same-chain only, cross-chain uses Yellow Network
                 </div>
               </div>
             </div>

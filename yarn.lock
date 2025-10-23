@@ -324,6 +324,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@erc7824/nitrolite@npm:^0.4.0":
+  version: 0.4.0
+  resolution: "@erc7824/nitrolite@npm:0.4.0"
+  dependencies:
+    abitype: ^0.10.3
+    viem: ^2.37.6
+    zod: ^3.25.76
+  checksum: aa89ff53c78621720c102420946a71650403d544539447df15c76f1af300a7ec8d28b62da93a29f47126e07fda70387e540341f48fa61c4e87ca495dce16cc54
+  languageName: node
+  linkType: hard
+
 "@eslint-community/eslint-utils@npm:^4.2.0, @eslint-community/eslint-utils@npm:^4.4.0, @eslint-community/eslint-utils@npm:^4.7.0":
   version: 4.9.0
   resolution: "@eslint-community/eslint-utils@npm:4.9.0"
@@ -3540,6 +3551,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@se-2/nextjs@workspace:packages/nextjs"
   dependencies:
+    "@erc7824/nitrolite": ^0.4.0
     "@heroicons/react": ~2.1.5
     "@rainbow-me/rainbowkit": 2.2.8
     "@tailwindcss/postcss": 4.0.15
@@ -5561,6 +5573,21 @@ __metadata:
     zod:
       optional: true
   checksum: 55f724d038a60cc5e4ce4913298f912f0c34c53e13240cd3b97b272f4122bdf4c84541d85d1e3bb36f6e8dab6685f232c69600718fad62ccc389bea3f63ed7e4
+  languageName: node
+  linkType: hard
+
+"abitype@npm:^0.10.3":
+  version: 0.10.3
+  resolution: "abitype@npm:0.10.3"
+  peerDependencies:
+    typescript: ">=5.0.4"
+    zod: ^3 >=3.22.0
+  peerDependenciesMeta:
+    typescript:
+      optional: true
+    zod:
+      optional: true
+  checksum: 3dccd692c2cf26bfa29926ef8cf5e9649d496327f77e693f953647e86ff15d70ff9d26a7296c27313ef34ca208faeaafc8cd4054dfc1bd075089e78a2d124e7d
   languageName: node
   linkType: hard
 
@@ -17168,6 +17195,27 @@ __metadata:
   languageName: node
   linkType: hard
 
+"viem@npm:^2.37.6":
+  version: 2.38.3
+  resolution: "viem@npm:2.38.3"
+  dependencies:
+    "@noble/curves": 1.9.1
+    "@noble/hashes": 1.8.0
+    "@scure/bip32": 1.7.0
+    "@scure/bip39": 1.6.0
+    abitype: 1.1.0
+    isows: 1.0.7
+    ox: 0.9.6
+    ws: 8.18.3
+  peerDependencies:
+    typescript: ">=5.0.4"
+  peerDependenciesMeta:
+    typescript:
+      optional: true
+  checksum: d27b8c766be1bc6bf7fb0127a477f332adf0035ecf004f30bbb738b8d8d4ecda88cc11017f1ab4cccc2206ab22a0734e1ca0c54aed1281ca9a168d4105bbdaa8
+  languageName: node
+  linkType: hard
+
 "wagmi@npm:2.16.4":
   version: 2.16.4
   resolution: "wagmi@npm:2.16.4"
@@ -17770,7 +17818,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:^3.22.4":
+"zod@npm:^3.22.4, zod@npm:^3.25.76":
   version: 3.25.76
   resolution: "zod@npm:3.25.76"
   checksum: c9a403a62b329188a5f6bd24d5d935d2bba345f7ab8151d1baa1505b5da9f227fb139354b043711490c798e91f3df75991395e40142e6510a4b16409f302b849

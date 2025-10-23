@@ -7,9 +7,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import { useAccount, useChainId } from "wagmi";
 import { clearNodeService } from "~~/services/clearnode";
-import { ChannelState, PaymentRequest, stateChannelClient } from "~~/services/stateChannelClient";
+import { stateChannelClient } from "~~/services/stateChannelClient";
 import { yellowNetworkService } from "~~/services/yellowNetwork";
-import type { QuoteParams, SwapIntentRequest, YellowNetworkQuote, YellowNetworkSwapIntent } from "~~/types/nitrolite";
+import type {
+  ChannelState,
+  PaymentRequest,
+  QuoteParams,
+  SwapIntentRequest,
+  YellowNetworkQuote,
+  YellowNetworkSwapIntent,
+} from "~~/types/nitrolite";
 import { useViemMessageSigner } from "~~/utils/messageSigning";
 import { notification } from "~~/utils/scaffold-eth";
 
@@ -57,6 +64,13 @@ export const useStateChannel = (): UseStateChannelReturn => {
 
   // Create message signer using Wagmi hook at the top level
   const messageSigner = useViemMessageSigner();
+
+  // Set message signer on state channel client when available
+  useEffect(() => {
+    if (messageSigner) {
+      stateChannelClient.setMessageSigner(messageSigner);
+    }
+  }, [messageSigner]);
 
   // Check connection status
   useEffect(() => {
@@ -157,7 +171,7 @@ export const useStateChannel = (): UseStateChannelReturn => {
         const channelId = await stateChannelClient.createChannel(
           participants,
           allocations.map(alloc => ({
-            participant: alloc.participant,
+            participant: alloc.participant as `0x${string}`,
             asset: alloc.asset,
             amount: alloc.amount,
           })),

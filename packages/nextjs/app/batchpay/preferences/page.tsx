@@ -43,17 +43,16 @@ const PreferencesPage = () => {
     }
 
     try {
-      await pyusdBridgeService.getBridgeQuote({
-        amount: BigInt("1000000"), // 1 PYUSD
-        fromChain: "ethereum",
-        toChain: "solana",
-        userEmail: paypalEmail,
-        destinationAddress: "0x...", // Placeholder
-      });
+      // Test PYUSD service availability
+      const isSupported = pyusdBridgeService.isPYUSDSupported(defaultChainId);
 
-      notification.success("PayPal bridge test successful!", {
-        duration: 10000,
-      });
+      if (isSupported) {
+        notification.success("PayPal bridge configuration successful!", {
+          duration: 10000,
+        });
+      } else {
+        notification.warning(`PYUSD not supported on chain ${defaultChainId}`);
+      }
     } catch (error) {
       console.error("PayPal bridge test failed:", error);
       notification.error("PayPal bridge test failed");

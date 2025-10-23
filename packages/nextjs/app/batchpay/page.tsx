@@ -4,9 +4,18 @@ import Link from "next/link";
 import Navigation from "./_components/Navigation";
 import { useAccount } from "wagmi";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
+import { useStateChannel } from "~~/hooks/scaffold-eth/useStateChannel";
 
 const BatchPayDashboard = () => {
   const { address, isConnected } = useAccount();
+
+  // State channel hook
+  const {
+    isConnected: clearNodeConnected,
+    connect: connectToClearNode,
+    isLoading: isConnecting,
+    error: connectionError,
+  } = useStateChannel();
 
   // Get user's channels using Scaffold-ETH 2 hooks
   const { data: userChannels, isLoading: isLoadingChannels } = useScaffoldReadContract({
@@ -38,6 +47,30 @@ const BatchPayDashboard = () => {
               <div className="card-actions justify-center">
                 <button className="btn btn-primary">Connect Wallet</button>
               </div>
+            </div>
+          </div>
+        ) : !clearNodeConnected ? (
+          <div className="card w-96 bg-base-100 shadow-xl">
+            <div className="card-body text-center">
+              <h2 className="card-title justify-center">Connect to ClearNode</h2>
+              <p>Connect to Yellow Network for state channel operations</p>
+              <div className="card-actions justify-center">
+                <button className="btn btn-primary" onClick={connectToClearNode} disabled={isConnecting}>
+                  {isConnecting ? (
+                    <>
+                      <span className="loading loading-spinner loading-sm"></span>
+                      Connecting...
+                    </>
+                  ) : (
+                    "Connect to ClearNode"
+                  )}
+                </button>
+              </div>
+              {connectionError && (
+                <div className="alert alert-error mt-4">
+                  <span>{connectionError}</span>
+                </div>
+              )}
             </div>
           </div>
         ) : (

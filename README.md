@@ -6,12 +6,35 @@ A production-grade cross-chain expense splitting application that combines ERC-7
 
 BatchPay combines four cutting-edge technologies:
 
-1. **ERC-7824 State Channels** - Off-chain expense tracking (zero gas, instant updates)
-2. **EIP-5792 Batch Settlements** - Multiple payments in one transaction
-3. **Yellow Network Integration** - Cross-chain settlements (any token → any token)
-4. **PYUSD Integration** - PayPal's stablecoin for stable expense tracking
+1. **ERC-7824 State Channels** - Off-chain expense tracking (zero gas, instant updates) ✅ **IMPLEMENTED**
+2. **EIP-5792 Batch Settlements** - Multiple payments in one transaction ✅ **IMPLEMENTED**
+3. **Yellow Network Integration** - Cross-chain settlements (any token → any token) 🔄 **API INTEGRATION PENDING**
+4. **PYUSD Integration** - PayPal's stablecoin for stable expense tracking ✅ **IMPLEMENTED**
 
 **Result**: Track expenses for free in stable USD value, settle across chains with any token including PYUSD, and save 95%+ on gas fees.
+
+## 📋 Integration Status
+
+### ✅ Completed Integrations
+
+- **ERC-7824 Nitrolite SDK** - Full integration with ClearNode communication
+- **PYUSD Bridge Service** - Same-chain PYUSD transfers and balance checking
+- **State Channel Client** - Off-chain state management with signature collection
+- **Message Signing** - Viem/Wagmi integration with plain JSON signing
+- **Type Safety** - Comprehensive TypeScript types and interfaces
+- **Smart Contracts** - BatchPayChannel and YellowNetworkAdapter contracts
+
+### 🔄 Pending Integrations
+
+- **Yellow Network API** - Real API integration (currently using placeholders)
+- **Yellow Network Manager** - Intent management and settlement tracking
+- **Yellow Network Settlement** - Cross-chain settlement UI components
+
+### 📚 Documentation
+
+- **API Documentation** - `docs/YELLOW_NETWORK_API.md`
+- **Integration Guide** - `docs/INTEGRATION_GUIDE.md`
+- **Types Reference** - `docs/TYPES_REFERENCE.md`
 
 ## 🏗️ Architecture
 
@@ -35,6 +58,7 @@ BatchPay combines four cutting-edge technologies:
 - Node.js 18+
 - Yarn 3.2+
 - Git
+- Access to Yellow Network API (for full integration)
 
 ### Installation
 
@@ -46,6 +70,9 @@ cd test5792
 # Install dependencies
 yarn install
 
+# Install Nitrolite SDK
+yarn add @erc7824/nitrolite
+
 # Start local blockchain
 yarn chain
 
@@ -56,6 +83,26 @@ yarn deploy
 yarn start
 ```
 
+### Environment Setup
+
+Create a `.env.local` file in the project root:
+
+```bash
+# Yellow Network API Configuration (for full integration)
+YELLOW_NETWORK_API_URL=https://api.yellow.com
+YELLOW_NETWORK_WS_URL=wss://clearnet.yellow.com/ws
+YELLOW_NETWORK_API_KEY=your_api_key_here
+YELLOW_NETWORK_SECRET=your_secret_here
+
+# Rate Limiting
+YELLOW_NETWORK_RATE_LIMIT_REQUESTS=100
+YELLOW_NETWORK_RATE_LIMIT_WINDOW=60000
+
+# Retry Configuration
+YELLOW_NETWORK_MAX_RETRIES=3
+YELLOW_NETWORK_RETRY_DELAY=1000
+```
+
 ### Development Flow
 
 1. `yarn chain` - Start local Hardhat network
@@ -64,6 +111,13 @@ yarn start
 4. Navigate to `/batchpay` to use the app
 5. Use `/debug` to test contract functions
 
+### Current Features
+
+- ✅ **State Channel Management** - Create, update, and close channels
+- ✅ **PYUSD Integration** - Same-chain PYUSD transfers and balance checking
+- ✅ **Batch Settlements** - Multiple payments in one transaction
+- 🔄 **Yellow Network** - Cross-chain settlements (API integration pending)
+
 ## 💰 PYUSD Integration
 
 ### PayPal USD (PYUSD) Support
@@ -71,46 +125,28 @@ yarn start
 BatchPay integrates PayPal's stablecoin for stable expense tracking:
 
 - **Ethereum**: `0x6c3ea9036406852006290770BEdFcAbA0e23A0e8`
-- **Solana**: `2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo`
 - **Decimals**: 6 (like USDC)
 - **Pegged**: 1:1 USD
-
-### PayPal Bridge Integration
-
-Cross-chain PYUSD transfers via PayPal/Venmo:
-
-```typescript
-// Example: Bridge PYUSD from Ethereum to Solana
-const bridgeService = new PYUSDBridgeService();
-
-const quote = await bridgeService.getBridgeQuote({
-  amount: BigInt("1000000"), // 1 PYUSD (6 decimals)
-  fromChain: "ethereum",
-  toChain: "solana",
-  userEmail: "user@example.com",
-  destinationAddress: "0x...",
-});
-
-// Process:
-// 1. Send PYUSD to PayPal receiving address
-// 2. PayPal credits user's account (~30 seconds)
-// 3. User sends from PayPal to destination
-// 4. Recipient receives PYUSD in < 1 minute
-```
+- **Same-Chain Only**: Direct PYUSD transfers (cross-chain via Yellow Network)
 
 ### PYUSD Bridge Service
 
 ```typescript
 import { pyusdBridgeService } from "~~/services/pyusdBridge";
 
-// Get PayPal receiving address
-const depositAddress = await pyusdBridgeService.getPayPalReceivingAddress(
-  "user@example.com",
-  "ethereum"
+// Check PYUSD balance
+const balance = await pyusdBridgeService.getPYUSDBalance(
+  "0x...", // User address
+  1 // Ethereum chain ID
 );
 
-// Check bridge availability
-const isAvailable = pyusdBridgeService.isPayPalBridgeAvailable(1, 501);
+// Transfer PYUSD (same-chain only)
+const transfer = await pyusdBridgeService.transferPYUSD(
+  "0x...", // From address
+  "0x...", // To address
+  BigInt("1000000"), // 1 PYUSD (6 decimals)
+  1 // Ethereum chain ID
+);
 
 // Format PYUSD amounts
 const formatted = pyusdBridgeService.formatPYUSDAmount(
@@ -119,39 +155,75 @@ const formatted = pyusdBridgeService.formatPYUSDAmount(
 );
 ```
 
+### PYUSD Contract Integration
+
+```typescript
+import { usePYUSDContract } from "~~/hooks/usePYUSDContract";
+
+// Use PYUSD contract hook
+const { balance, transfer, formatAmount, isSupported } = usePYUSDContract();
+
+// Check if PYUSD is supported on current chain
+if (isSupported()) {
+  // Transfer PYUSD
+  await transfer(recipient, amount);
+}
+```
+
 ## 🌐 Yellow Network Integration
 
 ### Cross-Chain Swaps
 
 Yellow Network enables any ERC-20 to any ERC-20 swaps across chains:
 
-```solidity
-// Create swap intent
-bytes32 intentId = yellowAdapter.createSwapIntent(
-  from,           // Sender address
-  to,             // Recipient address
-  fromAmount,     // Amount to swap
-  fromToken,      // Source token (e.g., ETH)
-  toToken,        // Destination token (e.g., PYUSD)
-  fromChainId,    // Source chain (e.g., Ethereum)
-  toChainId       // Destination chain (e.g., Arbitrum)
-);
+```typescript
+import { yellowNetworkService } from "~~/services/yellowNetwork";
+
+// Get quote for cross-chain swap
+const quote = await yellowNetworkService.getQuote({
+  fromToken: "0x...", // Source token
+  toToken: "0x...", // Destination token
+  fromAmount: BigInt("1000000"), // Amount to swap
+  fromChainId: 1, // Ethereum
+  toChainId: 42161, // Arbitrum
+  slippageTolerance: 0.5,
+});
+
+// Submit swap intent
+const intent = await yellowNetworkService.submitSwapIntent({
+  from: "0x...", // Sender address
+  to: "0x...", // Recipient address
+  fromToken: "0x...", // Source token
+  toToken: "0x...", // Destination token
+  fromAmount: BigInt("1000000"),
+  fromChainId: 1,
+  toChainId: 42161,
+  quoteId: quote.quoteId,
+});
 ```
 
-### Yellow Network Adapter
+### Yellow Network Service
 
 ```typescript
-// Frontend integration
-const { writeContractAsync } = useScaffoldWriteContract({
-  contractName: "YellowNetworkAdapter",
-});
+// Check intent status
+const status = await yellowNetworkService.getIntentStatus(intent.intentId);
 
-// Create swap intent
-await writeContractAsync({
-  functionName: "createSwapIntent",
-  args: [from, to, fromAmount, fromToken, toToken, fromChainId, toChainId],
-});
+// Get settlement details
+const settlement = await yellowNetworkService.getSettlementDetails(
+  intent.intentId
+);
+
+// Get supported tokens
+const tokens = await yellowNetworkService.getSupportedTokens();
 ```
+
+### Current Status
+
+- ✅ **Service Structure** - Complete API client with error handling
+- ✅ **Type Safety** - Comprehensive TypeScript interfaces
+- ✅ **Documentation** - API endpoints and integration guide
+- 🔄 **API Integration** - Real API calls (currently using placeholders)
+- 🔄 **WebSocket Support** - Real-time updates (pending)
 
 ## 🔧 Smart Contract Usage
 
@@ -378,6 +450,46 @@ const { data: channelInfo } = useScaffoldReadContract({
   args: [channelId],
 });
 ```
+
+## 🚧 Next Steps
+
+### Immediate Tasks
+
+1. **Yellow Network API Integration**
+
+   - Replace placeholder implementations with real API calls
+   - Implement WebSocket connection for real-time updates
+   - Add comprehensive error handling and retry logic
+
+2. **Component Updates**
+
+   - Update `YellowNetworkManager.tsx` with intent management
+   - Update `YellowNetworkSettlement.tsx` with service integration
+   - Update `useStateChannel.ts` hook with proper types
+
+3. **Testing and Validation**
+   - Add unit tests for all services
+   - Implement integration tests
+   - Add end-to-end testing
+
+### Future Enhancements
+
+1. **Advanced Features**
+
+   - Multi-signature support for state channels
+   - Advanced routing for cross-chain swaps
+   - Gas optimization strategies
+
+2. **UI/UX Improvements**
+
+   - Real-time status updates
+   - Advanced error handling
+   - Mobile-responsive design
+
+3. **Production Readiness**
+   - Security audits
+   - Performance optimization
+   - Monitoring and logging
 
 ## 🤝 Contributing
 

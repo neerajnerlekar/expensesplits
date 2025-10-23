@@ -138,3 +138,5 @@ packages/nextjs/contracts/externalContracts.ts
 
 # IPFS
 .ipfs/
+
+/docs
