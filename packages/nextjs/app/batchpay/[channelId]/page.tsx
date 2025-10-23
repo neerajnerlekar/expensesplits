@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import BatchSettlement from "../_components/BatchSettlement";
+import ExpenseForm from "../_components/ExpenseForm";
 import Navigation from "../_components/Navigation";
 import { useAccount } from "wagmi";
 import { Address } from "~~/components/scaffold-eth";
@@ -19,6 +20,8 @@ const ChannelDetailPage = () => {
   const [preferredChainId, setPreferredChainId] = useState(1);
   const [usePYUSD, setUsePYUSD] = useState(true);
   const [paypalEmail, setPaypalEmail] = useState("");
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expenses, setExpenses] = useState<any[]>([]);
 
   // Get channel information
   const { data: channelInfo, isLoading: isLoadingChannel } = useScaffoldReadContract({
@@ -69,6 +72,19 @@ const ChannelDetailPage = () => {
       console.error("Error setting preference:", error);
       notification.error("Failed to set user preference");
     }
+  };
+
+  const handleAddExpense = (expense: any) => {
+    setExpenses([...expenses, expense]);
+    setShowExpenseForm(false);
+  };
+
+  const handleOpenExpenseForm = () => {
+    if (!isConnected || !address) {
+      notification.error("Please connect your wallet");
+      return;
+    }
+    setShowExpenseForm(true);
   };
 
   if (isLoadingChannel) {
@@ -301,6 +317,42 @@ const ChannelDetailPage = () => {
             </div>
           )}
 
+          {/* Expenses List */}
+          {expenses.length > 0 && (
+            <div className="card bg-base-100 shadow-xl">
+              <div className="card-body">
+                <h2 className="card-title">Expenses</h2>
+                <div className="space-y-3">
+                  {expenses.map((expense, index) => (
+                    <div key={expense.id || index} className="bg-base-200 p-4 rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-semibold">{expense.description}</h3>
+                          <p className="text-sm text-base-content/60">
+                            ${expense.amount} • Paid by{" "}
+                            {expense.paidBy === address
+                              ? "You"
+                              : expense.paidBy.slice(0, 6) + "..." + expense.paidBy.slice(-4)}
+                          </p>
+                          <p className="text-xs text-base-content/50">
+                            Split between {expense.participants.length} participant
+                            {expense.participants.length !== 1 ? "s" : ""}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold">${expense.amount}</div>
+                          <div className="text-xs text-base-content/50">
+                            {new Date(expense.timestamp).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Settlements */}
           {!isLoadingSettlements && settlements && settlements.length > 0 && (
             <div className="card bg-base-100 shadow-xl">
@@ -366,10 +418,24 @@ const ChannelDetailPage = () => {
             <Link href="/batchpay" className="btn btn-outline">
               Back to Dashboard
             </Link>
-            {isOpen && <button className="btn btn-primary">Add Expense</button>}
+            {isOpen && (
+              <button className="btn btn-primary" onClick={handleOpenExpenseForm} disabled={!isConnected}>
+                Add Expense
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Expense Form Modal */}
+      {showExpenseForm && (
+        <ExpenseForm
+          channelId={channelId}
+          participants={[...participants]}
+          onExpenseAdded={handleAddExpense}
+          onClose={() => setShowExpenseForm(false)}
+        />
+      )}
     </div>
   );
 };
