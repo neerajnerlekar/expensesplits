@@ -42,6 +42,10 @@ export const useViemMessageSigner = (): ViemMessageSigner => {
 
   return async (payload: any): Promise<Hex> => {
     try {
+      if (!signMessageAsync) {
+        throw new Error("Wallet client is not connected or does not have an account.");
+      }
+
       const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
       return await signMessageAsync({ message: messageString });
     } catch (error) {

@@ -99,6 +99,13 @@ export const useStateChannel = (): UseStateChannelReturn => {
       throw new Error(errorMessage);
     }
 
+    if (!messageSigner) {
+      const errorMessage = "Message signer not available";
+      setError(errorMessage);
+      setLastError(errorMessage);
+      throw new Error(errorMessage);
+    }
+
     setIsLoading(true);
     setError(null);
     setLastError(null);
@@ -106,8 +113,6 @@ export const useStateChannel = (): UseStateChannelReturn => {
     try {
       // Connect to ClearNode
       await clearNodeService.connect();
-
-      // Use the message signer created at the top level
 
       // Authenticate with ClearNode
       await clearNodeService.authenticate(messageSigner, address as `0x${string}`);

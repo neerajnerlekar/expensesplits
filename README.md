@@ -1,10 +1,10 @@
-# BatchPay - Cross-Chain Expense Splitter with PYUSD
+# ExpenseSplits - Cross-Chain Expense Splitter with PYUSD
 
 A production-grade cross-chain expense splitting application that combines ERC-7824 state channels, EIP-5792 batch settlements, Yellow Network integration, and PYUSD stablecoin support.
 
 ## 🚀 Core Innovation
 
-BatchPay combines four cutting-edge technologies:
+ExpenseSplits combines four cutting-edge technologies:
 
 1. **ERC-7824 State Channels** - Off-chain expense tracking (zero gas, instant updates) ✅ **IMPLEMENTED**
 2. **EIP-5792 Batch Settlements** - Multiple payments in one transaction ✅ **IMPLEMENTED**
@@ -122,7 +122,7 @@ YELLOW_NETWORK_RETRY_DELAY=1000
 
 ### PayPal USD (PYUSD) Support
 
-BatchPay integrates PayPal's stablecoin for stable expense tracking:
+ExpenseSplits integrates PayPal's stablecoin for stable expense tracking:
 
 - **Ethereum**: `0x6c3ea9036406852006290770BEdFcAbA0e23A0e8`
 - **Decimals**: 6 (like USDC)
@@ -217,14 +217,6 @@ const settlement = await yellowNetworkService.getSettlementDetails(
 const tokens = await yellowNetworkService.getSupportedTokens();
 ```
 
-### Current Status
-
-- ✅ **Service Structure** - Complete API client with error handling
-- ✅ **Type Safety** - Comprehensive TypeScript interfaces
-- ✅ **Documentation** - API endpoints and integration guide
-- 🔄 **API Integration** - Real API calls (currently using placeholders)
-- 🔄 **WebSocket Support** - Real-time updates (pending)
-
 ## 🔧 Smart Contract Usage
 
 ### Creating a Channel
@@ -298,28 +290,6 @@ yarn test --gas-report
 ```bash
 # Generate coverage report
 yarn coverage
-```
-
-## 🚀 Deployment
-
-### Local Development
-
-```bash
-# Deploy to local network
-yarn deploy
-
-# Deploy specific contract
-yarn deploy --tags BatchPayChannel
-```
-
-### Production Deployment
-
-```bash
-# Deploy to mainnet
-yarn deploy --network mainnet
-
-# Deploy to testnet
-yarn deploy --network sepolia
 ```
 
 ### Multi-Chain Deployment
@@ -453,25 +423,6 @@ const { data: channelInfo } = useScaffoldReadContract({
 
 ## 🚧 Next Steps
 
-### Immediate Tasks
-
-1. **Yellow Network API Integration**
-
-   - Replace placeholder implementations with real API calls
-   - Implement WebSocket connection for real-time updates
-   - Add comprehensive error handling and retry logic
-
-2. **Component Updates**
-
-   - Update `YellowNetworkManager.tsx` with intent management
-   - Update `YellowNetworkSettlement.tsx` with service integration
-   - Update `useStateChannel.ts` hook with proper types
-
-3. **Testing and Validation**
-   - Add unit tests for all services
-   - Implement integration tests
-   - Add end-to-end testing
-
 ### Future Enhancements
 
 1. **Advanced Features**
@@ -531,4 +482,4 @@ For support and questions:
 
 ---
 
-**Built with ❤️ using Scaffold-ETH 2, OpenZeppelin, and cutting-edge Web3 technologies.**
+**Built with ❤️ using Scaffold-ETH 2, OpenZeppelin**

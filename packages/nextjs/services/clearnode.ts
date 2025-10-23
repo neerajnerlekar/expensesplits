@@ -131,6 +131,10 @@ export class ClearNodeService {
               }
 
               // Create EIP-712 signer for authentication
+              if (!messageSigner) {
+                throw new ClearNodeError("Message signer is not available");
+              }
+
               const eip712Signer = await createEIP712AuthMessageSigner(
                 messageSigner as any, // Type mismatch with SDK expectation
                 {
