@@ -9,6 +9,7 @@ import Navigation from "../_components/Navigation";
 import { useAccount } from "wagmi";
 import { Address } from "~~/components/scaffold-eth";
 import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
+import { useExpenseStateChannel } from "~~/hooks/scaffold-eth/useExpenseStateChannel";
 import { notification } from "~~/utils/scaffold-eth";
 import { PYUSD_CONSTANTS, SUPPORTED_TOKENS, isPYUSD } from "~~/utils/tokens";
 
@@ -21,7 +22,16 @@ const ChannelDetailPage = () => {
   const [usePYUSD, setUsePYUSD] = useState(true);
   const [paypalEmail, setPaypalEmail] = useState("");
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const [expenses, setExpenses] = useState<any[]>([]);
+  // Use expense state channel integration
+  const {
+    expenses,
+    addExpense,
+    clearExpenses,
+    isLoading: isLoadingExpenses,
+    error: expenseError,
+    isConnected: clearNodeConnected,
+    isAuthenticated: clearNodeAuthenticated,
+  } = useExpenseStateChannel(channelId);
 
   // Get channel information
   const { data: channelInfo, isLoading: isLoadingChannel } = useScaffoldReadContract({
@@ -74,9 +84,13 @@ const ChannelDetailPage = () => {
     }
   };
 
-  const handleAddExpense = (expense: any) => {
-    setExpenses([...expenses, expense]);
+  const handleAddExpense = async (expense: any) => {
+    await addExpense(expense);
     setShowExpenseForm(false);
+  };
+
+  const handleClearExpenses = async () => {
+    await clearExpenses();
   };
 
   const handleOpenExpenseForm = () => {
@@ -197,13 +211,8 @@ const ChannelDetailPage = () => {
                   >
                     {SUPPORTED_TOKENS.map(token => (
                       <option key={token.symbol} value={token.address}>
-                        <div className="flex items-center gap-2">
-                          <span>{token.symbol}</span>
-                          {token.isStablecoin && <span className="badge badge-sm">Stable</span>}
-                          {token.paypalBridgeSupported && (
-                            <span className="badge badge-sm badge-success">PayPal Bridge</span>
-                          )}
-                        </div>
+                        {token.symbol} {token.isStablecoin ? "(Stable)" : ""}{" "}
+                        {token.paypalBridgeSupported ? "(PayPal Bridge)" : ""}
                       </option>
                     ))}
                   </select>
@@ -318,10 +327,45 @@ const ChannelDetailPage = () => {
           )}
 
           {/* Expenses List */}
-          {expenses.length > 0 && (
-            <div className="card bg-base-100 shadow-xl">
-              <div className="card-body">
-                <h2 className="card-title">Expenses</h2>
+          <div className="card bg-base-100 shadow-xl">
+            <div className="card-body">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="card-title">Expenses {expenses.length > 0 && `(${expenses.length})`}</h2>
+                  <div className="flex items-center gap-2">
+                    <div className={`badge ${clearNodeConnected ? "badge-success" : "badge-error"}`}>
+                      {clearNodeConnected ? "ClearNode Connected" : "ClearNode Disconnected"}
+                    </div>
+                    {clearNodeAuthenticated && <div className="badge badge-info">Authenticated</div>}
+                  </div>
+                </div>
+                {expenses.length > 0 && (
+                  <button className="btn btn-sm btn-outline btn-error" onClick={handleClearExpenses}>
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              {!clearNodeConnected && (
+                <div className="alert alert-warning mb-4">
+                  <span>
+                    ⚠️ ClearNode not connected. Expenses will only be stored locally and won&apos;t sync with other
+                    participants.
+                  </span>
+                </div>
+              )}
+
+              {expenseError && (
+                <div className="alert alert-error mb-4">
+                  <span>Error loading expenses: {expenseError}</span>
+                </div>
+              )}
+
+              {isLoadingExpenses ? (
+                <div className="flex justify-center py-8">
+                  <span className="loading loading-spinner loading-lg"></span>
+                </div>
+              ) : expenses.length > 0 ? (
                 <div className="space-y-3">
                   {expenses.map((expense, index) => (
                     <div key={expense.id || index} className="bg-base-200 p-4 rounded-lg">
@@ -349,9 +393,14 @@ const ChannelDetailPage = () => {
                     </div>
                   ))}
                 </div>
-              </div>
+              ) : (
+                <div className="text-center py-8 text-base-content/60">
+                  <p>No expenses added yet.</p>
+                  <p className="text-sm">Click &quot;Add Expense&quot; to get started.</p>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Settlements */}
           {!isLoadingSettlements && settlements && settlements.length > 0 && (

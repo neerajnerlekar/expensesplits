@@ -15,7 +15,6 @@ import {
   createAuthVerifyMessage,
   createAuthVerifyMessageWithJWT,
   createCloseAppSessionMessage,
-  createEIP712AuthMessageSigner,
   createGetChannelsMessage,
   createGetLedgerBalancesMessage,
   parseAnyRPCResponse,
@@ -55,6 +54,12 @@ export class ClearNodeService {
    * Connect to ClearNode WebSocket
    */
   async connect(): Promise<void> {
+    // Prevent multiple simultaneous connections
+    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+      console.log("ClearNode already connecting or connected, skipping...");
+      return Promise.resolve();
+    }
+
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.config.endpoint);
@@ -102,6 +107,16 @@ export class ClearNodeService {
       throw new ClearNodeError("Not connected to ClearNode");
     }
 
+    if (!messageSigner) {
+      throw new ClearNodeError("Message signer not available");
+    }
+
+    // Prevent multiple simultaneous authentication attempts
+    if (this.connection.isAuthenticated) {
+      console.log("Already authenticated with ClearNode, skipping...");
+      return Promise.resolve();
+    }
+
     this.messageSigner = messageSigner;
 
     return new Promise(async (resolve, reject) => {
@@ -135,22 +150,20 @@ export class ClearNodeService {
                 throw new ClearNodeError("Message signer is not available");
               }
 
-              const eip712Signer = await createEIP712AuthMessageSigner(
-                messageSigner as any, // Type mismatch with SDK expectation
-                {
-                  scope: "console" as `0x${string}`,
-                  application: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-                  participant: userAddress as `0x${string}`,
-                  expire: (Math.floor(Date.now() / 1000) + 3600).toString(),
-                  allowances: [],
-                },
-                {
-                  name: "BatchPay",
-                },
-              );
+              // Create a wrapper that matches the SDK's expected interface
+              const sdkMessageSigner = async (payload: any): Promise<`0x${string}`> => {
+                try {
+                  const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+                  return await messageSigner(messageString);
+                } catch (error) {
+                  console.error("Error in SDK message signer:", error);
+                  throw new Error("Failed to sign message for SDK");
+                }
+              };
 
-              // Create and send auth verify message
-              const authVerifyMsg = await createAuthVerifyMessage(eip712Signer, message);
+              // For now, let's try a simpler approach without EIP-712
+              // Create and send auth verify message directly
+              const authVerifyMsg = await createAuthVerifyMessage(sdkMessageSigner, message);
 
               if (this.ws) {
                 this.ws.send(authVerifyMsg);
@@ -211,8 +224,19 @@ export class ClearNodeService {
     }
 
     try {
+      // Create a wrapper that matches the SDK's expected interface
+      const sdkMessageSigner = async (payload: any): Promise<`0x${string}`> => {
+        try {
+          const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+          return await this.messageSigner!(messageString);
+        } catch (error) {
+          console.error("Error in SDK message signer:", error);
+          throw new Error("Failed to sign message for SDK");
+        }
+      };
+
       // Use SDK to create proper app session message (single object, not array)
-      const sessionMessage = await createAppSessionMessage(this.messageSigner as any, session);
+      const sessionMessage = await createAppSessionMessage(sdkMessageSigner, session);
 
       if (this.ws) {
         this.ws.send(sessionMessage);
@@ -280,9 +304,20 @@ export class ClearNodeService {
       this.messageHandlers.set("get_channels", handler);
 
       try {
+        // Create a wrapper that matches the SDK's expected interface
+        const sdkMessageSigner = async (payload: any): Promise<`0x${string}`> => {
+          try {
+            const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+            return await this.messageSigner!(messageString);
+          } catch (error) {
+            console.error("Error in SDK message signer:", error);
+            throw new Error("Failed to sign message for SDK");
+          }
+        };
+
         // Create get channels message - expects address parameter
         const getChannelsMessage = await createGetChannelsMessage(
-          this.messageSigner as any,
+          sdkMessageSigner,
           "0x0000000000000000000000000000000000000000" as `0x${string}`, // Placeholder
         );
         if (this.ws) {
@@ -320,8 +355,19 @@ export class ClearNodeService {
       this.messageHandlers.set("get_ledger_balances", handler);
 
       try {
+        // Create a wrapper that matches the SDK's expected interface
+        const sdkMessageSigner = async (payload: any): Promise<`0x${string}`> => {
+          try {
+            const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+            return await this.messageSigner!(messageString);
+          } catch (error) {
+            console.error("Error in SDK message signer:", error);
+            throw new Error("Failed to sign message for SDK");
+          }
+        };
+
         const getLedgerBalancesMessage = await createGetLedgerBalancesMessage(
-          this.messageSigner as any,
+          sdkMessageSigner,
           participantAddress as `0x${string}`,
         );
         if (this.ws) {
@@ -343,8 +389,19 @@ export class ClearNodeService {
     }
 
     try {
+      // Create a wrapper that matches the SDK's expected interface
+      const sdkMessageSigner = async (payload: any): Promise<`0x${string}`> => {
+        try {
+          const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+          return await this.messageSigner!(messageString);
+        } catch (error) {
+          console.error("Error in SDK message signer:", error);
+          throw new Error("Failed to sign message for SDK");
+        }
+      };
+
       // SDK expects single object, not array
-      const closeSessionMessage = await createCloseAppSessionMessage(this.messageSigner as any, {
+      const closeSessionMessage = await createCloseAppSessionMessage(sdkMessageSigner, {
         app_session_id: sessionId as `0x${string}`,
         allocations: [],
       });

@@ -37,15 +37,16 @@ export const createViemMessageSigner = (): ViemMessageSigner => {
  * Create message signer using Wagmi hook
  * This is the recommended approach for React components
  */
-export const useViemMessageSigner = (): ViemMessageSigner => {
+export const useViemMessageSigner = (): ViemMessageSigner | null => {
   const { signMessageAsync } = useSignMessage();
+
+  // Return null if signMessageAsync is not available yet
+  if (!signMessageAsync) {
+    return null;
+  }
 
   return async (payload: any): Promise<Hex> => {
     try {
-      if (!signMessageAsync) {
-        throw new Error("Wallet client is not connected or does not have an account.");
-      }
-
       const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
       return await signMessageAsync({ message: messageString });
     } catch (error) {

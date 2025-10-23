@@ -69,6 +69,9 @@ export const useStateChannel = (): UseStateChannelReturn => {
   useEffect(() => {
     if (messageSigner) {
       stateChannelClient.setMessageSigner(messageSigner);
+      // Clear any previous errors when message signer becomes available
+      setError(null);
+      setLastError(null);
     }
   }, [messageSigner]);
 
@@ -100,7 +103,7 @@ export const useStateChannel = (): UseStateChannelReturn => {
     }
 
     if (!messageSigner) {
-      const errorMessage = "Message signer not available";
+      const errorMessage = "Message signer not available. Please wait for wallet to initialize.";
       setError(errorMessage);
       setLastError(errorMessage);
       throw new Error(errorMessage);
@@ -131,6 +134,17 @@ export const useStateChannel = (): UseStateChannelReturn => {
       setIsLoading(false);
     }
   }, [address, messageSigner]);
+
+  // Auto-retry connection when message signer becomes available
+  useEffect(() => {
+    if (messageSigner && address && !isConnected && !isLoading) {
+      // Small delay to ensure everything is properly initialized
+      const timer = setTimeout(() => {
+        connect().catch(console.error);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [messageSigner, address, isConnected, isLoading, connect]);
 
   // Disconnect from ClearNode
   const disconnect = useCallback(async () => {
