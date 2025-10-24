@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
-import { useAccount, useChainId } from "wagmi";
+import { useAccount, useChainId, useWalletClient } from "wagmi";
 import { clearNodeService } from "~~/services/clearnode";
 import { stateChannelClient } from "~~/services/stateChannelClient";
 import { yellowNetworkService } from "~~/services/yellowNetwork";
@@ -17,7 +17,7 @@ import type {
   YellowNetworkQuote,
   YellowNetworkSwapIntent,
 } from "~~/types/nitrolite";
-import { useViemMessageSigner } from "~~/utils/messageSigning";
+import { useERC7824MessageSigner, useViemMessageSigner } from "~~/utils/messageSigning";
 import { notification } from "~~/utils/scaffold-eth";
 
 export interface UseStateChannelReturn {
@@ -54,6 +54,7 @@ export interface UseStateChannelReturn {
 
 export const useStateChannel = (): UseStateChannelReturn => {
   const { address } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const chainId = useChainId();
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -65,15 +66,30 @@ export const useStateChannel = (): UseStateChannelReturn => {
   // Create message signer using Wagmi hook at the top level
   const messageSigner = useViemMessageSigner();
 
+  // Try to get ERC-7824 compliant message signer for authentication
+  const erc7824MessageSigner = useERC7824MessageSigner();
+
+  // For ClearNode authentication, we need a basic message signer that the SDK can use
+  // The SDK's createEIP712AuthMessageSigner will handle the EIP-712 signing internally
+  // Use ERC-7824 signer if available (for raw signing), otherwise fall back to standard
+  const finalMessageSigner = erc7824MessageSigner || messageSigner;
+
   // Set message signer on state channel client when available
   useEffect(() => {
-    if (messageSigner) {
-      stateChannelClient.setMessageSigner(messageSigner);
+    if (finalMessageSigner) {
+      stateChannelClient.setMessageSigner(finalMessageSigner);
       // Clear any previous errors when message signer becomes available
       setError(null);
       setLastError(null);
+
+      // Log which signer is being used
+      if (finalMessageSigner === erc7824MessageSigner) {
+        console.log("✅ Using ERC-7824 compliant message signer (SDK will handle EIP-712)");
+      } else {
+        console.log("⚠️ Using fallback EIP-191 message signer (SDK will handle EIP-712)");
+      }
     }
-  }, [messageSigner]);
+  }, [finalMessageSigner, erc7824MessageSigner]);
 
   // Check connection status
   useEffect(() => {
@@ -110,7 +126,7 @@ export const useStateChannel = (): UseStateChannelReturn => {
       throw new Error(errorMessage);
     }
 
-    if (!messageSigner) {
+    if (!finalMessageSigner) {
       const errorMessage = "Message signer not available. Please wait for wallet to initialize.";
       setError(errorMessage);
       setLastError(errorMessage);
@@ -125,8 +141,8 @@ export const useStateChannel = (): UseStateChannelReturn => {
       // Connect to ClearNode
       await clearNodeService.connect();
 
-      // Authenticate with ClearNode
-      await clearNodeService.authenticate(messageSigner, address as `0x${string}`);
+      // Authenticate with ClearNode using SDK EIP-712 signer via walletClient
+      await clearNodeService.authenticate(finalMessageSigner, address as `0x${string}`, walletClient);
 
       // Wait a moment for state to propagate
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -150,22 +166,22 @@ export const useStateChannel = (): UseStateChannelReturn => {
     } finally {
       setIsLoading(false);
     }
-  }, [address, messageSigner]);
+  }, [address, finalMessageSigner, walletClient]);
 
   // Auto-retry connection when message signer becomes available
   useEffect(() => {
-    if (messageSigner && address && !isConnected && !isLoading) {
+    if (messageSigner && walletClient && address && !isConnected && !isLoading) {
       // Small delay to ensure everything is properly initialized
       const timer = setTimeout(() => {
         connect().catch(console.error);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [messageSigner, address, isConnected, isLoading, connect]);
+  }, [messageSigner, walletClient, address, isConnected, isLoading, connect]);
 
   // Auto-retry authentication if stuck in authenticating state
   useEffect(() => {
-    if (isConnected && !isAuthenticated && messageSigner && address) {
+    if (isConnected && !isAuthenticated && messageSigner && walletClient && address) {
       const authTimeout = setTimeout(() => {
         console.log("🔄 Retrying authentication...");
         connect().catch(console.error);
@@ -173,7 +189,7 @@ export const useStateChannel = (): UseStateChannelReturn => {
 
       return () => clearTimeout(authTimeout);
     }
-  }, [isConnected, isAuthenticated, messageSigner, address, connect]);
+  }, [isConnected, isAuthenticated, messageSigner, walletClient, address, connect]);
 
   // Disconnect from ClearNode
   const disconnect = useCallback(async () => {

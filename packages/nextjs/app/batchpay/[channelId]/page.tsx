@@ -27,6 +27,7 @@ const ChannelDetailPage = () => {
     expenses,
     addExpense,
     clearExpenses,
+    syncExpenses,
     isLoading: isLoadingExpenses,
     error: expenseError,
     isConnected: clearNodeConnected,
@@ -343,11 +344,16 @@ const ChannelDetailPage = () => {
                     ) : null}
                   </div>
                 </div>
-                {expenses.length > 0 && (
-                  <button className="btn btn-sm btn-outline btn-error" onClick={handleClearExpenses}>
-                    Clear All
+                <div className="flex gap-2">
+                  <button className="btn btn-sm btn-outline btn-info" onClick={syncExpenses}>
+                    🔄 Sync
                   </button>
-                )}
+                  {expenses.length > 0 && (
+                    <button className="btn btn-sm btn-outline btn-error" onClick={handleClearExpenses}>
+                      Clear All
+                    </button>
+                  )}
+                </div>
               </div>
 
               {!clearNodeConnected && (

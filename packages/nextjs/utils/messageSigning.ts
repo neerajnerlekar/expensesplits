@@ -5,7 +5,9 @@
  *
  * Note: ERC-7824 requires plain JSON signing (not EIP-191) for compatibility
  */
-import { Address, Hex, recoverMessageAddress } from "viem";
+// For ERC-7824 raw signing without EIP-191 prefix
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { Address, Hex, keccak256, recoverMessageAddress, toBytes } from "viem";
 import { useAccount, useChainId, useSignMessage, useSignTypedData, useSwitchChain } from "wagmi";
 import type { EIP712Domain, EIP712Types, ViemMessageSigner } from "~~/types/nitrolite";
 
@@ -18,24 +20,35 @@ import type { EIP712Domain, EIP712Types, ViemMessageSigner } from "~~/types/nitr
  * - Compatible with non-EVM chains
  */
 export const createViemMessageSigner = (): ViemMessageSigner => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return async (payload: any): Promise<Hex> => {
-    try {
-      // For now, we'll use a mock implementation since we need a viem client
-      // In a real implementation, this would use the connected wallet
-      throw new Error(
-        "createViemMessageSigner requires a viem client. Use useViemMessageSigner() in React components instead.",
-      );
-    } catch (error) {
-      console.error("Error signing message with Viem:", error);
-      throw new Error(`Failed to sign message: ${error}`);
+    const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+    // Use window.ethereum personal_sign as a safe default for non-auth flows
+    // Note: This is EIP-191 and not suitable for ERC-7824 auth
+    if (typeof window !== "undefined" && (window as any).ethereum) {
+      try {
+        const accounts: string[] = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
+        const from = accounts?.[0];
+        const signature: string = await (window as any).ethereum.request({
+          method: "personal_sign",
+          params: [messageString, from],
+        });
+        return signature as Hex;
+      } catch (error) {
+        console.error("Error signing via personal_sign:", error);
+        throw new Error(`Failed to sign message: ${error}`);
+      }
     }
+    throw new Error("No wallet available for signing");
   };
 };
 
 /**
  * Create message signer using Wagmi hook
  * This is the recommended approach for React components
+ *
+ * IMPORTANT: For ERC-7824 authentication, we need to sign plain JSON payloads
+ * without EIP-191 prefix, but Wagmi's signMessageAsync uses EIP-191 by default.
+ * This is a limitation that needs to be addressed for proper ERC-7824 compliance.
  */
 export const useViemMessageSigner = (): ViemMessageSigner | null => {
   const { signMessageAsync } = useSignMessage();
@@ -48,6 +61,9 @@ export const useViemMessageSigner = (): ViemMessageSigner | null => {
   return async (payload: any): Promise<Hex> => {
     try {
       const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+      // WARNING: This uses EIP-191 prefix which is NOT compliant with ERC-7824
+      // For proper ERC-7824 compliance, we need plain JSON signing without EIP-191
+      console.warn("⚠️ Using EIP-191 signing (not ERC-7824 compliant) - may cause authentication failures");
       return await signMessageAsync({ message: messageString });
     } catch (error) {
       console.error("Error signing message with Wagmi:", error);
@@ -55,6 +71,8 @@ export const useViemMessageSigner = (): ViemMessageSigner | null => {
     }
   };
 };
+
+// Removed createERC7824MessageSigner - use useERC7824MessageSigner hook instead
 
 /**
  * Create EIP-712 message signer for structured data using Viem
@@ -73,6 +91,92 @@ export const createViemEIP712Signer = (domain: EIP712Domain): ViemMessageSigner 
     } catch (error) {
       console.error("Error signing EIP-712 message with Viem:", error);
       throw new Error(`Failed to sign EIP-712 message: ${error}`);
+    }
+  };
+};
+
+/**
+ * Create ERC-7824 compliant message signer using Wagmi hook
+ * This is the recommended approach for React components
+ *
+ * IMPORTANT: This requires access to the wallet's private key for plain JSON signing
+ * which is not available through standard Wagmi hooks. This is a limitation of
+ * browser wallet security - private keys are not exposed to web applications.
+ *
+ * For development/testing purposes, we can use the burner wallet's private key
+ * which is available in the browser's localStorage.
+ */
+export const useERC7824MessageSigner = (): ViemMessageSigner | null => {
+  const { signMessageAsync } = useSignMessage();
+
+  // For development, try to get the burner wallet private key
+  const getBurnerPrivateKey = (): Hex | null => {
+    try {
+      // Check if we're in development mode and have a burner wallet
+      if (typeof window !== "undefined" && window.localStorage) {
+        const burnerKey = window.localStorage.getItem("scaffold-eth-burner-wallet-key");
+        if (burnerKey) {
+          return burnerKey as Hex;
+        }
+      }
+    } catch (error) {
+      console.warn("Could not access burner wallet private key:", error);
+    }
+    return null;
+  };
+
+  const privateKey = getBurnerPrivateKey();
+
+  if (!privateKey) {
+    console.warn("ERC-7824 plain JSON signing requires private key access. Using fallback to EIP-191 signing.");
+    return null;
+  }
+
+  // Return a message signer that uses the private key for raw signing
+  return async (payload: any): Promise<Hex> => {
+    try {
+      // For ERC-7824, we need to sign plain JSON without EIP-191 prefix
+      const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
+
+      // Create message hash using keccak256 (same as ethers.utils.id)
+      const messageHash = keccak256(toBytes(messageString));
+
+      // For ERC-7824 compliance, we need to sign the raw hash without EIP-191 prefix
+      // This requires direct private key access for raw secp256k1 signing
+      if (privateKey) {
+        try {
+          // For ERC-7824, sign raw hash and return 65-byte r|s|v
+          console.log("🔐 Signing with ERC-7824 compliant raw secp256k1 (no EIP-191 prefix)");
+
+          const privateKeyBytes = toBytes(privateKey);
+          const sig = secp256k1.sign(messageHash, privateKeyBytes);
+          const sigBytes = sig.toCompactRawBytes();
+          const v = new Uint8Array([27]);
+          const full = new Uint8Array(sigBytes.length + 1);
+          full.set(sigBytes, 0);
+          full.set(v, sigBytes.length);
+          const hex = Array.from(full)
+            .map(b => b.toString(16).padStart(2, "0"))
+            .join("");
+          const signatureHex = ("0x" + hex) as Hex;
+
+          console.log("✅ Successfully signed with ERC-7824 compliant raw signing");
+          return signatureHex;
+        } catch (signError) {
+          console.warn("Raw secp256k1 signing failed, falling back to EIP-191:", signError);
+          // Fallback to EIP-191 if raw signing fails
+          const signature = await signMessageAsync({ message: messageString });
+          return signature;
+        }
+      } else {
+        // No private key available, use EIP-191 fallback
+        console.warn("No private key available, using EIP-191 fallback (may not work with ClearNode)");
+        const signature = await signMessageAsync({ message: messageString });
+        return signature;
+      }
+    } catch (error) {
+      console.error("Error signing ERC-7824 message:", error);
+      throw new Error(`Failed to sign ERC-7824 message: ${error}`);
     }
   };
 };
@@ -109,6 +213,76 @@ export const useViemEIP712Signer = (domain: EIP712Domain): ViemMessageSigner => 
     } catch (error) {
       console.error("Error signing EIP-712 message with Wagmi:", error);
       throw new Error(`Failed to sign EIP-712 message: ${error}`);
+    }
+  };
+};
+
+/**
+ * Create ClearNode EIP-712 signer for authentication
+ * Uses the proper EIP-712 structure required by ClearNode
+ */
+export const useClearNodeEIP712Signer = (): ViemMessageSigner => {
+  const { signTypedDataAsync } = useSignTypedData();
+
+  return async (payload: any): Promise<Hex> => {
+    try {
+      // Define the EIP-712 types for ClearNode authentication
+      const types: EIP712Types = {
+        EIP712Domain: [{ name: "name", type: "string" }],
+        Policy: [
+          { name: "challenge", type: "string" },
+          { name: "scope", type: "string" },
+          { name: "wallet", type: "address" },
+          { name: "application", type: "address" },
+          { name: "participant", type: "address" },
+          { name: "expire", type: "uint256" },
+          { name: "allowances", type: "Allowance[]" },
+        ],
+        Allowance: [
+          { name: "asset", type: "string" },
+          { name: "amount", type: "uint256" },
+        ],
+      };
+
+      // Create the EIP-712 message structure with proper validation
+      const challenge = payload.challenge || payload.challengeMessage;
+      if (!challenge) {
+        throw new Error("Challenge is required for authentication");
+      }
+
+      const participant = payload.participant;
+      if (!participant) {
+        throw new Error("Participant address is required for authentication");
+      }
+
+      const message = {
+        challenge: challenge,
+        scope: payload.scope || "console",
+        wallet: payload.wallet || participant,
+        application: payload.application || "0x0000000000000000000000000000000000000000",
+        participant: participant,
+        expire: payload.expire || Math.floor(Date.now() / 1000) + 3600,
+        allowances: payload.allowances || [],
+      };
+
+      // Validate all required fields are present and not undefined
+      if (!message.challenge || !message.participant || !message.wallet) {
+        throw new Error(
+          `Missing required fields: challenge=${!!message.challenge}, participant=${!!message.participant}, wallet=${!!message.wallet}`,
+        );
+      }
+
+      console.log("🔐 Signing ClearNode EIP-712 structured data:", message);
+
+      return await signTypedDataAsync({
+        domain: { name: "ClearNode" },
+        types,
+        primaryType: "Policy",
+        message,
+      });
+    } catch (error) {
+      console.error("Error signing ClearNode EIP-712 message:", error);
+      throw new Error(`Failed to sign ClearNode EIP-712 message: ${error}`);
     }
   };
 };

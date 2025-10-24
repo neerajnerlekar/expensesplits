@@ -7,6 +7,7 @@ import type { Expense } from "./useExpensePersistence";
 import { useStateChannel } from "./useStateChannel";
 import { useAccount } from "wagmi";
 import { stateChannelClient } from "~~/services/stateChannelClient";
+import { sanitizeExpense, validateExpenses } from "~~/utils/expenseValidation";
 import { notification } from "~~/utils/scaffold-eth";
 
 export interface ExpenseStateChannelReturn {
@@ -14,6 +15,7 @@ export interface ExpenseStateChannelReturn {
   addExpense: (expense: Omit<Expense, "id" | "timestamp">) => Promise<void>;
   removeExpense: (expenseId: string) => Promise<void>;
   clearExpenses: () => Promise<void>;
+  syncExpenses: () => Promise<void>;
   isLoading: boolean;
   error: string | null;
   isConnected: boolean;
@@ -67,22 +69,60 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
     loadChannel();
   }, [channelId, address]);
 
-  // Load expenses from localStorage on mount
+  // Set up state channel listeners for real-time expense synchronization
   useEffect(() => {
-    const loadExpenses = () => {
-      try {
-        const savedExpenses = localStorage.getItem(`expenses_${channelId}`);
-        if (savedExpenses) {
-          const parsedExpenses = JSON.parse(savedExpenses);
-          setExpenses(parsedExpenses);
+    if (!isConnected || !isAuthenticated) {
+      return;
+    }
+
+    console.log("🔗 Setting up state channel listeners for expense synchronization");
+
+    // Listen for state updates from other participants via ClearNode
+    const handleStateUpdate = (stateData: any) => {
+      console.log("📊 Received state update from other participant:", stateData);
+
+      // Extract expenses from state update
+      if (stateData.expenses && Array.isArray(stateData.expenses)) {
+        // Validate incoming expenses
+        const validation = validateExpenses(stateData.expenses);
+        if (!validation.isValid) {
+          console.error("❌ Invalid expenses received:", validation.errors);
+          notification.error(`Invalid expenses received: ${validation.errors.join(", ")}`);
+          return;
         }
-      } catch (err) {
-        console.error("Error loading expenses:", err);
+
+        // Sanitize expenses
+        const sanitizedExpenses = stateData.expenses.map((expense: Expense) => sanitizeExpense(expense));
+
+        // Update expenses without comparing to avoid dependency issues
+        setExpenses(sanitizedExpenses);
+        console.log("✅ Expenses synchronized from state channel:", sanitizedExpenses.length);
       }
     };
 
-    loadExpenses();
-  }, [channelId]);
+    // Register the handler with the state channel client for ClearNode messages
+    const handleClearNodeMessage = (event: MessageEvent) => {
+      console.log("📨 Received window message:", event.data);
+
+      if (event.data && event.data.type === "state_update") {
+        // Check if this is for our channel
+        if (event.data.channelId === channelId) {
+          console.log("✅ Message is for our channel:", channelId);
+          handleStateUpdate(event.data.data);
+        } else {
+          console.log("❌ Message is for different channel:", event.data.channelId, "vs", channelId);
+        }
+      }
+    };
+
+    window.addEventListener("message", handleClearNodeMessage);
+
+    // Cleanup function
+    return () => {
+      console.log("🧹 Cleaning up state channel listeners");
+      window.removeEventListener("message", handleClearNodeMessage);
+    };
+  }, [channelId, isConnected, isAuthenticated]); // Removed expenses from dependencies
 
   // Calculate new balances based on expenses
   const calculateBalances = useCallback((participants: string[], expenses: Expense[]): bigint[] => {
@@ -153,12 +193,16 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
           timestamp: Date.now(),
         };
 
-        // Update local state first
-        const updatedExpenses = [...expenses, newExpense];
-        setExpenses(updatedExpenses);
+        // Validate and sanitize the new expense
+        const sanitizedExpense = sanitizeExpense(newExpense);
+        const validation = validateExpenses([sanitizedExpense]);
+        if (!validation.isValid) {
+          throw new Error(`Invalid expense data: ${validation.errors.join(", ")}`);
+        }
 
-        // Save to localStorage as backup
-        localStorage.setItem(`expenses_${channelId}`, JSON.stringify(updatedExpenses));
+        // Update local state first
+        const updatedExpenses = [...expenses, sanitizedExpense];
+        setExpenses(updatedExpenses);
 
         // Get current channel participants
         const currentChannel = stateChannelClient.getCurrentChannel();
@@ -171,8 +215,17 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
         // Calculate new balances
         const newBalances = calculateBalances(participants, updatedExpenses);
 
-        // Broadcast state update via ERC-7824
-        await stateChannelClient.updateChannelState(newBalances);
+        // Create comprehensive state update with expenses data
+        // const stateUpdate = {
+        //   channelId,
+        //   expenses: updatedExpenses,
+        //   balances: newBalances,
+        //   participants,
+        //   timestamp: Date.now(),
+        // };
+
+        // Broadcast state update via ERC-7824 with expenses data
+        await stateChannelClient.updateChannelState(newBalances, updatedExpenses);
 
         notification.success("Expense added and broadcast to all participants!");
       } catch (err) {
@@ -186,7 +239,7 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
         setIsLoading(false);
       }
     },
-    [expenses, channelId, address, isAuthenticated, calculateBalances],
+    [expenses, channelId, address, isAuthenticated, calculateBalances, isConnected],
   );
 
   // Remove expense with state channel integration
@@ -204,13 +257,6 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
         const updatedExpenses = expenses.filter(expense => expense.id !== expenseId);
         setExpenses(updatedExpenses);
 
-        // Save to localStorage
-        if (updatedExpenses.length > 0) {
-          localStorage.setItem(`expenses_${channelId}`, JSON.stringify(updatedExpenses));
-        } else {
-          localStorage.removeItem(`expenses_${channelId}`);
-        }
-
         // Get current channel participants
         const currentChannel = stateChannelClient.getCurrentChannel();
         if (!currentChannel) {
@@ -222,8 +268,8 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
         // Recalculate balances
         const newBalances = calculateBalances(participants, updatedExpenses);
 
-        // Broadcast state update
-        await stateChannelClient.updateChannelState(newBalances);
+        // Broadcast state update with updated expenses
+        await stateChannelClient.updateChannelState(newBalances, updatedExpenses);
 
         notification.success("Expense removed and state updated!");
       } catch (err) {
@@ -234,7 +280,7 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
         setIsLoading(false);
       }
     },
-    [expenses, channelId, isAuthenticated, calculateBalances],
+    [expenses, isAuthenticated, calculateBalances],
   );
 
   // Clear all expenses
@@ -249,7 +295,6 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
 
     try {
       setExpenses([]);
-      localStorage.removeItem(`expenses_${channelId}`);
 
       // Get current channel participants
       const currentChannel = stateChannelClient.getCurrentChannel();
@@ -261,7 +306,7 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
 
       // Reset balances to initial state
       const initialBalances = new Array(participants.length).fill(0n);
-      await stateChannelClient.updateChannelState(initialBalances);
+      await stateChannelClient.updateChannelState(initialBalances, []);
 
       notification.success("All expenses cleared and state reset!");
     } catch (err) {
@@ -271,13 +316,55 @@ export const useExpenseStateChannel = (channelId: string): ExpenseStateChannelRe
     } finally {
       setIsLoading(false);
     }
-  }, [channelId, isAuthenticated]);
+  }, [isAuthenticated]);
+
+  // Manual synchronization function
+  const syncExpenses = useCallback(async () => {
+    if (!isAuthenticated) {
+      notification.error("Please authenticate with ClearNode first");
+      return;
+    }
+
+    console.log("🔄 Manual expense synchronization triggered");
+
+    try {
+      // Get current channel state
+      const currentChannel = stateChannelClient.getCurrentChannel();
+      if (currentChannel && (currentChannel as any).expenses) {
+        const channelExpenses = (currentChannel as any).expenses;
+        console.log("📊 Found expenses in channel state:", channelExpenses);
+
+        if (Array.isArray(channelExpenses) && channelExpenses.length > 0) {
+          // Validate and sanitize expenses
+          const validation = validateExpenses(channelExpenses);
+          if (validation.isValid) {
+            const sanitizedExpenses = channelExpenses.map((expense: Expense) => sanitizeExpense(expense));
+            setExpenses(sanitizedExpenses);
+            console.log("✅ Expenses synchronized from channel state:", sanitizedExpenses.length);
+            notification.success(`Synchronized ${sanitizedExpenses.length} expenses`);
+          } else {
+            console.error("❌ Invalid expenses in channel state:", validation.errors);
+            notification.error("Invalid expenses found in channel state");
+          }
+        } else {
+          console.log("📊 No expenses found in channel state");
+          setExpenses([]);
+        }
+      } else {
+        console.log("📊 No channel state or expenses found");
+      }
+    } catch (err) {
+      console.error("Error synchronizing expenses:", err);
+      notification.error("Failed to synchronize expenses");
+    }
+  }, [isAuthenticated]);
 
   return {
     expenses,
     addExpense,
     removeExpense,
     clearExpenses,
+    syncExpenses,
     isLoading,
     error,
     isConnected,

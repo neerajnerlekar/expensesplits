@@ -149,7 +149,7 @@ export class StateChannelClient {
   /**
    * Update channel state using Nitrolite SDK
    */
-  async updateChannelState(newBalances: bigint[]): Promise<void> {
+  async updateChannelState(newBalances: bigint[], expenses?: any[]): Promise<void> {
     if (!this.currentChannel || !this.messageSigner) {
       throw new Error("No active channel or message signer not set");
     }
@@ -161,11 +161,15 @@ export class StateChannelClient {
         stateHash: this.generateStateHash(newBalances),
         nonce: this.currentChannel.nonce + 1,
         balances: newBalances.map(b => b.toString()),
+        expenses: expenses || [], // Include expenses in state update
         timestamp: Date.now(),
       };
 
-      // Send to ClearNode (no SDK helper for state updates yet)
-      await this.clearNode.sendStateUpdate(stateUpdate);
+      // Send to ClearNode using proper ERC-7824 submit_app_state
+      await this.clearNode.sendStateUpdate({
+        ...stateUpdate,
+        participants: this.currentChannel.participants.map(p => p.address),
+      });
 
       // Update local state
       this.currentChannel.nonce++;
@@ -174,6 +178,11 @@ export class StateChannelClient {
         ...p,
         balance: newBalances[i] || p.balance,
       }));
+
+      // Store expenses in channel state for synchronization
+      if (expenses) {
+        (this.currentChannel as any).expenses = expenses;
+      }
 
       notification.success("Channel state updated successfully");
     } catch (error) {
@@ -320,7 +329,7 @@ export class StateChannelClient {
   private handleStateUpdate(stateData: any): void {
     if (!this.currentChannel) return;
 
-    const { balances, nonce } = stateData;
+    const { balances, nonce, expenses } = stateData;
 
     // Update channel state
     this.currentChannel.nonce = nonce;
@@ -328,6 +337,11 @@ export class StateChannelClient {
       ...p,
       balance: BigInt(balances[i] || 0),
     }));
+
+    // Store expenses in channel state for synchronization
+    if (expenses) {
+      (this.currentChannel as any).expenses = expenses;
+    }
 
     console.log("Channel state updated:", this.currentChannel);
   }

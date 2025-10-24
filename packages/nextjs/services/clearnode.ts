@@ -15,6 +15,7 @@ import {
   createAuthVerifyMessage,
   createAuthVerifyMessageWithJWT,
   createCloseAppSessionMessage,
+  createEIP712AuthMessageSigner,
   createGetChannelsMessage,
   createGetLedgerBalancesMessage,
   parseAnyRPCResponse,
@@ -30,6 +31,7 @@ export class ClearNodeService {
   private ws: WebSocket | null = null;
   private messageSigner: ViemMessageSigner | null = null;
   private config: ClearNodeConfig;
+  private participantAddress?: Address;
   private connection: ClearNodeConnection = {
     isConnected: false,
     isAuthenticated: false,
@@ -127,7 +129,7 @@ export class ClearNodeService {
   /**
    * Authenticate with ClearNode using Nitrolite SDK
    */
-  async authenticate(messageSigner: ViemMessageSigner, userAddress: Address): Promise<void> {
+  async authenticate(messageSigner: ViemMessageSigner, userAddress: Address, walletClient?: any): Promise<void> {
     if (!this.ws || this.connectionState !== "connected") {
       throw new ClearNodeError("Not connected to ClearNode");
     }
@@ -147,13 +149,14 @@ export class ClearNodeService {
 
     return new Promise(async (resolve, reject) => {
       try {
-        // Create auth request message using SDK
+        const appName = "BatchPay";
+        // Create auth request message using SDK - object-based approach
         const authRequestMsg = await createAuthRequestMessage({
           address: userAddress as `0x${string}`,
           session_key: userAddress as `0x${string}`, // Using same address as session key for simplicity
-          app_name: "BatchPay",
+          app_name: appName,
           expire: (Math.floor(Date.now() / 1000) + 3600).toString(), // 1 hour
-          scope: "console" as `0x${string}`,
+          scope: "console",
           application: "0x0000000000000000000000000000000000000000" as `0x${string}`,
           allowances: [],
         });
@@ -173,25 +176,25 @@ export class ClearNodeService {
                 throw new ClearNodeError("No challenge received");
               }
 
-              // Create EIP-712 signer for authentication
-              if (!messageSigner) {
-                throw new ClearNodeError("Message signer is not available");
+              // Build SDK EIP-712 signer using the connected wallet client per docs
+              if (!walletClient) {
+                throw new ClearNodeError("Wallet client not available for EIP-712 auth signer");
               }
 
-              // Create a wrapper that matches the SDK's expected interface
-              const sdkMessageSigner = async (payload: any): Promise<`0x${string}`> => {
-                try {
-                  const messageString = typeof payload === "string" ? payload : JSON.stringify(payload);
-                  return await messageSigner(messageString);
-                } catch (error) {
-                  console.error("Error in SDK message signer:", error);
-                  throw new Error("Failed to sign message for SDK");
-                }
-              };
+              const eip712Signer = createEIP712AuthMessageSigner(
+                walletClient,
+                {
+                  scope: "console",
+                  application: "0x0000000000000000000000000000000000000000",
+                  participant: userAddress as `0x${string}`,
+                  expire: (Math.floor(Date.now() / 1000) + 3600).toString(),
+                  allowances: [],
+                },
+                { name: appName },
+              );
 
-              // For now, let's try a simpler approach without EIP-712
-              // Create and send auth verify message directly
-              const authVerifyMsg = await createAuthVerifyMessage(sdkMessageSigner, message);
+              // Create and send auth verify message using the SDK EIP-712 signer
+              const authVerifyMsg = await createAuthVerifyMessage(eip712Signer, message);
 
               if (this.ws) {
                 this.ws.send(authVerifyMsg);
@@ -203,6 +206,7 @@ export class ClearNodeService {
               if (success) {
                 this.connectionState = "authenticated";
                 this.connection.isAuthenticated = true;
+                this.participantAddress = userAddress;
                 const jwtToken = message.params?.jwtToken || message.res?.[2]?.[0]?.jwtToken;
                 if (jwtToken) {
                   this.connection.jwtToken = jwtToken;
@@ -218,11 +222,13 @@ export class ClearNodeService {
               }
             } else if (message.error || (message.res && message.res[1] === "error")) {
               this.messageHandlers.delete("auth");
-              reject(
-                new ClearNodeError(
-                  `Authentication failed: ${message.error?.message || message.res?.[2]?.[0]?.message}`,
-                ),
-              );
+              const errorMessage =
+                message.error?.message ||
+                message.res?.[2]?.[0]?.message ||
+                message.params?.error ||
+                "Unknown authentication error";
+              console.error("❌ ClearNode authentication error:", errorMessage);
+              reject(new ClearNodeError(`Authentication failed: ${errorMessage}`));
             }
           } catch (error) {
             this.messageHandlers.delete("auth");
@@ -232,18 +238,13 @@ export class ClearNodeService {
 
         this.messageHandlers.set("auth", authHandler);
 
-        // Set authentication timeout
+        // Set authentication timeout - NO FALLBACK
         const authTimeout = setTimeout(() => {
           this.messageHandlers.delete("auth");
           this.connectionState = "connected";
-          console.log("⚠️ Authentication timeout - attempting fallback authentication");
-
-          // Try fallback authentication without ClearNode
-          this.connectionState = "authenticated";
-          this.connection.isAuthenticated = true;
-          console.log("✅ Using fallback authentication (local mode)");
-          resolve();
-        }, 10000); // 10 second timeout
+          console.log("❌ Authentication timeout - ClearNode authentication failed");
+          reject(new ClearNodeError("Authentication timeout - ClearNode authentication failed"));
+        }, 15000); // 15 second timeout
 
         // Clear timeout on success
         const originalResolve = resolve;
@@ -302,7 +303,7 @@ export class ClearNodeService {
   }
 
   /**
-   * Send state update (custom implementation since SDK doesn't have this)
+   * Send state update using ERC-7824 submit_app_state
    */
   async sendStateUpdate(stateUpdate: any): Promise<void> {
     if (!this.messageSigner || !this.connection.isAuthenticated) {
@@ -310,24 +311,38 @@ export class ClearNodeService {
     }
 
     try {
-      // Create custom state update message since SDK doesn't provide this
-      const stateUpdateData = {
-        type: "state_update",
-        channelId: stateUpdate.channelId,
-        stateHash: stateUpdate.stateHash,
-        nonce: stateUpdate.nonce,
-        balances: stateUpdate.balances,
-        timestamp: Date.now(),
+      // Use proper ERC-7824 submit_app_state format
+      const submitAppStateData = {
+        req: [
+          1,
+          "submit_app_state",
+          {
+            app_session_id: stateUpdate.channelId,
+            allocations: stateUpdate.balances.map((balance: string, index: number) => ({
+              participant: stateUpdate.participants?.[index] || `0x${index.toString().padStart(40, "0")}`,
+              asset: "usdc",
+              amount: balance,
+            })),
+            session_data: JSON.stringify({
+              expenses: stateUpdate.expenses || [],
+              stateHash: stateUpdate.stateHash,
+              nonce: stateUpdate.nonce,
+              timestamp: Date.now(),
+            }),
+          },
+          Date.now(),
+        ],
       };
 
-      const signature = await this.messageSigner(JSON.stringify(stateUpdateData));
-      const stateUpdateMessage = JSON.stringify({
-        ...stateUpdateData,
-        signature,
+      const signature = await this.messageSigner(JSON.stringify(submitAppStateData));
+      const submitAppStateMessage = JSON.stringify({
+        ...submitAppStateData,
+        sig: [signature],
       });
 
       if (this.ws) {
-        this.ws.send(stateUpdateMessage);
+        this.ws.send(submitAppStateMessage);
+        console.log("📤 Sent submit_app_state:", submitAppStateData);
       }
     } catch (error) {
       throw new ClearNodeError(`Failed to send state update: ${error}`);
@@ -371,10 +386,8 @@ export class ClearNodeService {
         };
 
         // Create get channels message - expects address parameter
-        const getChannelsMessage = await createGetChannelsMessage(
-          sdkMessageSigner,
-          "0x0000000000000000000000000000000000000000" as `0x${string}`, // Placeholder
-        );
+        const participant = (this.participantAddress || "0x0000000000000000000000000000000000000000") as `0x${string}`;
+        const getChannelsMessage = await createGetChannelsMessage(sdkMessageSigner, participant);
         if (this.ws) {
           this.ws.send(getChannelsMessage);
         }
@@ -542,8 +555,43 @@ export class ClearNodeService {
         case "payment":
           console.log("💰 Payment received:", message.params || message.res?.[2]);
           break;
-        case "state_update":
-          console.log("📊 State updated:", message.params || message.res?.[2]);
+        case "submit_app_state":
+          console.log("📊 App state updated:", message.params || message.res?.[2]);
+          // Handle app state updates with expenses data
+          const appStateData = message.params || message.res?.[2];
+          if (appStateData && appStateData.session_data) {
+            try {
+              const sessionData = JSON.parse(appStateData.session_data);
+              console.log("📊 Parsed session data:", sessionData);
+
+              if (sessionData.expenses) {
+                console.log("📊 Found expenses in session data:", sessionData.expenses.length);
+
+                // Broadcast to other participants via window events
+                const broadcastMessage = {
+                  type: "state_update",
+                  channelId: appStateData.app_session_id,
+                  data: {
+                    expenses: sessionData.expenses,
+                    stateHash: sessionData.stateHash,
+                    nonce: sessionData.nonce,
+                    timestamp: sessionData.timestamp,
+                    participants: appStateData.allocations?.map((alloc: any) => alloc.participant) || [],
+                  },
+                };
+
+                console.log("📤 Broadcasting message:", broadcastMessage);
+                window.postMessage(broadcastMessage, "*");
+                console.log("📤 Broadcasted state update to participants with expenses:", sessionData.expenses.length);
+              } else {
+                console.log("📊 No expenses found in session data");
+              }
+            } catch (error) {
+              console.error("Error parsing session data:", error);
+            }
+          } else {
+            console.log("📊 No session_data found in app state update");
+          }
           break;
         case "error":
           console.error("❌ ClearNode error:", message.error || message.res?.[2]);
